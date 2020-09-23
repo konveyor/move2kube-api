@@ -1,0 +1,765 @@
+/*
+Copyright IBM Corporation 2020
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package application
+
+import (
+	"bufio"
+	"bytes"
+	"fmt"
+	"io"
+	"io/ioutil"
+	"math/rand"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+
+	"github.com/mholt/archiver"
+	"github.com/phayes/freeport"
+	"gopkg.in/yaml.v3"
+
+	log "github.com/sirupsen/logrus"
+
+	"github.com/konveyor/move2kube-api/internal/types"
+)
+
+const (
+	AppName                 = "move2kube"
+	AppNameShort            = "m2k"
+	AssetsDirectory         = string(ApplicationStatusAssets)
+	ArtifactsDirectoryName  = string(ApplicationStatusArtifacts)
+	ArchivesDirectory       = "archives"
+	SrcDirectory            = "src"
+	m2kplanfilename         = AppNameShort + ".plan"
+	m2kQAServerMetadataFile = "." + AppNameShort + "qa"
+	m2kPlanOngoingFile      = "." + AppNameShort + "plan"
+)
+
+type FileSystem struct {
+}
+
+func (k *FileSystem) Download() (file io.Reader, filename string) {
+	path, err := exec.LookPath(AppName)
+	if err != nil {
+		log.Warnf("Unable to find "+AppName+" : %v", err)
+		return nil, ""
+	} else {
+		f, err := os.Open(path)
+		if err != nil {
+			log.Errorf("Cannot get file: %s", err)
+			return nil, ""
+		} else {
+			return f, filepath.Base(path)
+		}
+	}
+}
+
+func (k *FileSystem) NewApplication(application Application) error {
+	log.Infof("Creating application : %s", application.Name)
+	_, err := os.Stat(application.Name)
+	if !os.IsNotExist(err) {
+		log.Errorf("Application %s already exists.", application.Name)
+		return fmt.Errorf("Already exists.")
+	}
+
+	err = os.MkdirAll(application.Name, 0777)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	return nil
+}
+
+func (d *FileSystem) GetApplication(name string) (Application, error) {
+	app := Application{Name: name}
+	_, err := os.Stat(name)
+	if os.IsNotExist(err) {
+		log.Errorf("Application %s does not exist.", name)
+		return app, fmt.Errorf("Not Found")
+	} else {
+		status := []ApplicationStatus{}
+		//Checks for contents too if the dir exists
+		if exists, _ := doesPathExist(filepath.Join(name, AssetsDirectory)); exists {
+			status = append(status, ApplicationStatusAssets)
+		}
+		if exists, _ := doesPathExist(filepath.Join(name, ArtifactsDirectoryName)); exists {
+			status = append(status, ApplicationStatusArtifacts)
+		}
+		if exists, _ := doesPathExist(filepath.Join(name, "m2k.plan")); exists {
+			status = append(status, ApplicationStatusPlan)
+		}
+		if exists, _ := doesPathExist(filepath.Join(name, m2kPlanOngoingFile+".*")); exists {
+			status = append(status, ApplicationStatusPlanning)
+		}
+		app.Status = status
+		log.Infof("Application : %+v", app)
+		return app, nil
+	}
+}
+
+func (k *FileSystem) GetApplications() []Application {
+	applications := []Application{}
+	files, err := ioutil.ReadDir("./")
+	if err != nil {
+		log.Error("Could not read applications.")
+		return applications
+	}
+
+	for _, f := range files {
+		if f.IsDir() && !strings.Contains(f.Name(), ".") && !strings.Contains(f.Name(), "+") {
+			app, err := k.GetApplication(f.Name())
+			if err == nil {
+				applications = append(applications, app)
+			}
+		}
+	}
+	return applications
+}
+
+func (k *FileSystem) DeleteApplication(name string) error {
+	return os.RemoveAll(name)
+}
+
+func (k *FileSystem) UploadAsset(appName string, filename string, file io.Reader) error {
+	_, err := k.GetApplication(appName)
+	if err != nil {
+		log.Error("Application does not exist")
+		return err
+	}
+
+	archivefilePath := filepath.Join(appName, AssetsDirectory, ArchivesDirectory, filename)
+	srcDirectoryPath := strings.Split(filepath.Join(appName, AssetsDirectory, SrcDirectory, filename), ".")[0]
+	os.RemoveAll(srcDirectoryPath)
+	err = os.MkdirAll(filepath.Join(appName, AssetsDirectory, ArchivesDirectory), 0777)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	err = os.MkdirAll(srcDirectoryPath, 0777)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+
+	err = ioutil.WriteFile(filepath.Join(appName, AssetsDirectory, SrcDirectory, ".m2kignore"), []byte("."), 0777)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	err = ioutil.WriteFile(filepath.Join(srcDirectoryPath, ".m2kignore"), []byte("."), 0777)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+
+	f, err := os.OpenFile(archivefilePath, os.O_WRONLY|os.O_CREATE, 0777)
+	if err != nil {
+		log.Errorf("Cannot open file to write : %s", err)
+		return err
+	}
+	defer f.Close()
+	_, _ = io.Copy(f, file)
+	err = archiver.Unarchive(archivefilePath, srcDirectoryPath)
+	if err == nil {
+		return nil
+	} else if filepath.Ext(archivefilePath) == "zip" {
+		err = archiver.NewZip().Unarchive(archivefilePath, srcDirectoryPath)
+		if err == nil {
+			return nil
+		} else if filepath.Ext(archivefilePath) == "tar" {
+			err = archiver.NewTar().Unarchive(archivefilePath, srcDirectoryPath)
+			if err == nil {
+				return nil
+			} else if filepath.Ext(archivefilePath) == "tgz" || strings.HasSuffix(archivefilePath, "tar.gz") {
+				err = archiver.NewTarGz().Unarchive(archivefilePath, srcDirectoryPath)
+				if err == nil {
+					return nil
+				} else {
+					log.Error(err)
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (k *FileSystem) DeleteAsset(appName string, asset string) error {
+	files, err := filepath.Glob(filepath.Join(appName, AssetsDirectory, ArchivesDirectory, asset) + ".*")
+	if err != nil {
+		log.Errorf("Cannot get files to delete : %s", err)
+		return err
+	}
+	for _, f := range files {
+		if err := os.Remove(f); err != nil {
+			log.Errorf("Cannot delete file: %s", err)
+			return err
+		}
+	}
+	os.RemoveAll(filepath.Join(appName, AssetsDirectory, SrcDirectory, asset))
+	if err != nil {
+		log.Errorf("Cannot delete files : %s", err)
+		return err
+	}
+	return nil
+}
+
+func (k *FileSystem) GetAsset(appName string, asset string) (file io.Reader, filename string) {
+	files, err := filepath.Glob(filepath.Join(appName, AssetsDirectory, ArchivesDirectory, asset) + ".*")
+	if err != nil || len(files) == 0 {
+		log.Errorf("Cannot open file to write : %s", err)
+		return nil, ""
+	} else {
+		f, err := os.Open(files[0])
+		if err != nil {
+			log.Errorf("Cannot get file: %s", err)
+			return nil, ""
+		} else {
+			return f, filepath.Base(files[0])
+		}
+	}
+}
+
+func (k *FileSystem) GetAssetsList(appName string) (assets []string) {
+	assets = []string{}
+	files, err := ioutil.ReadDir(filepath.Join(appName, AssetsDirectory, SrcDirectory))
+	if err != nil {
+		log.Error("Could not read applications.")
+		return assets
+	}
+
+	for _, f := range files {
+		if f.IsDir() && !strings.Contains(f.Name(), ".") {
+			assets = append(assets, filepath.Base(f.Name()))
+		}
+	}
+	return assets
+}
+
+func (k *FileSystem) GeneratePlan(appName string) error {
+	log.Infof("About to start planning application %s", appName)
+	go runPlan(appName)
+	log.Infof("Planning started for application %s", appName)
+	return nil
+}
+
+func runPlan(appName string) bool {
+	log.Infof("Starting plan for %s", appName)
+
+	planid := strconv.Itoa(rand.Intn(100))
+	m2kplanongoing := filepath.Join(appName, m2kPlanOngoingFile+"."+planid)
+	emptyFile, err := os.Create(m2kplanongoing)
+	if err != nil {
+		log.Warn(err)
+	}
+	emptyFile.Close()
+
+	srcDirectoryPath := filepath.Join(AssetsDirectory, SrcDirectory)
+	cmd := exec.Command("move2kube", "plan", "-s", srcDirectoryPath)
+	cmd.Dir = appName
+
+	var wg sync.WaitGroup
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Errorf("RunCommand: cmd.StdoutPipe(): %v", err)
+		return false
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		log.Errorf("RunCommand: cmd.StderrPipe(): %v", err)
+		return false
+	}
+
+	if err := cmd.Start(); err != nil {
+		log.Errorf("RunCommand: cmd.Start(): %v", err)
+		return false
+	}
+
+	outch := make(chan string, 10)
+
+	scannerStdout := bufio.NewScanner(stdout)
+	scannerStdout.Split(bufio.ScanLines)
+	wg.Add(1)
+	go func() {
+		for scannerStdout.Scan() {
+			text := scannerStdout.Text()
+			if strings.TrimSpace(text) != "" {
+				outch <- text
+			}
+		}
+		wg.Done()
+	}()
+	scannerStderr := bufio.NewScanner(stderr)
+	scannerStderr.Split(bufio.ScanLines)
+	wg.Add(1)
+	go func() {
+		for scannerStderr.Scan() {
+			text := scannerStderr.Text()
+			if strings.TrimSpace(text) != "" {
+				outch <- text
+			}
+		}
+		wg.Done()
+	}()
+
+	go func() {
+		wg.Wait()
+		close(outch)
+	}()
+
+	for t := range outch {
+		log.Info(t)
+	}
+	os.Remove(m2kplanongoing)
+	return true
+}
+
+func (k *FileSystem) UpdatePlan(appName string, plan string) error {
+	log.Infof("Updating plan of %s", appName)
+	planfilepath := filepath.Join(appName, m2kplanfilename)
+	os.Remove(planfilepath)
+	err := ioutil.WriteFile(planfilepath, []byte(plan), 0777)
+	if err != nil {
+		log.Errorf("Cannot open file to write : %s", err)
+		return err
+	}
+	log.Infof("Plan updated successfully")
+	return nil
+}
+
+func (k *FileSystem) GetPlan(appName string) (file io.Reader, filename string) {
+	log.Infof("Fetching plan of %s", appName)
+	planfilepath := filepath.Join(appName, m2kplanfilename)
+	f, err := os.Open(planfilepath)
+	if err != nil {
+		log.Errorf("Cannot get file: %s", err)
+		return nil, ""
+	} else {
+		return f, m2kplanfilename
+	}
+}
+
+func (k *FileSystem) DeletePlan(appName string) error {
+	planfilepath := filepath.Join(appName, m2kplanfilename)
+	if err := os.Remove(planfilepath); err != nil {
+		log.Errorf("Cannot delete file: %s", err)
+		return err
+	}
+	return nil
+}
+
+func (k *FileSystem) Translate(appName, artifactName, plan string) error {
+	log.Infof("About to start translation of application %s", appName)
+
+	artifactpath := filepath.Join(appName, ArtifactsDirectoryName, artifactName)
+	err := os.MkdirAll(artifactpath, 0777)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	if plan != "" {
+		plan = strings.Replace(plan, "rootdir: assets/src/", "rootdir: ../../assets/src/", 1)
+		planfilepath := filepath.Join(artifactpath, m2kplanfilename)
+		err := ioutil.WriteFile(planfilepath, []byte(plan), 0777)
+		if err != nil {
+			log.Errorf("Cannot open file to write : %s", err)
+			return err
+		}
+	}
+
+	artifactfilepath := filepath.Join(appName, ArtifactsDirectoryName, artifactName, appName+".zip")
+	if _, err := os.Stat(artifactfilepath); !os.IsNotExist(err) {
+		return nil
+	}
+
+	m2kqaservermetadatapath := filepath.Join(appName, ArtifactsDirectoryName, artifactName, m2kQAServerMetadataFile)
+	if _, err := os.Stat(m2kqaservermetadatapath); !os.IsNotExist(err) {
+		metadatayaml := types.AppMetadata{}
+		err = ReadYaml(m2kqaservermetadatapath, &metadatayaml)
+		if err != nil || metadatayaml.Node != getDNSHostName() {
+			return nil
+		}
+	}
+
+	translatech := make(chan string, 10)
+	go runTranslate(appName, artifactpath, translatech)
+	log.Infof("Waiting for QA engine to start for app %s", appName)
+	port := <-translatech
+	appmetadata := types.AppMetadata{}
+	appmetadata.Url = "http://localhost:" + port
+	appmetadata.Node = getDNSHostName()
+	if appmetadata.Node == "" {
+		appmetadata.Node = "localhost"
+	}
+	log.Infof("Setting hostname as %s", appmetadata.Node)
+	log.Infof("QA engine to started for app %s at %s", appName, appmetadata.Url)
+
+	err = WriteYaml(m2kqaservermetadatapath, appmetadata)
+	if err != nil {
+		log.Errorf("Cannot open file to write : %s", err)
+		return err
+	}
+
+	log.Infof("Translation started for application %s with url %s", appName, appmetadata.Url)
+	return nil
+}
+
+func runTranslate(appName string, artifactpath string, translatech chan string) bool {
+	log.Infof("Starting Translate for %s", appName)
+
+	portint, err := freeport.GetFreePort()
+	port := strconv.Itoa(portint)
+	if err != nil {
+		log.Warnf("Unable to get a free port : %s", err)
+	}
+	cmd := exec.Command("move2kube", "translate", "-c", "--qadisablecli", "--qaport="+port, "--qacache="+filepath.Join(artifactpath, "m2kqache.yaml"), "--source", "../../assets/src/")
+	cmd.Dir = artifactpath
+
+	var wg sync.WaitGroup
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Errorf("RunCommand: cmd.StdoutPipe(): %v", err)
+		return false
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		log.Errorf("RunCommand: cmd.StderrPipe(): %v", err)
+		return false
+	}
+	if err := cmd.Start(); err != nil {
+		log.Errorf("RunCommand: cmd.Start(): %v", err)
+		return false
+	}
+
+	outch := make(chan string, 10)
+	scannerStdout := bufio.NewScanner(stdout)
+	scannerStdout.Split(bufio.ScanLines)
+	wg.Add(1)
+	go func() {
+		for scannerStdout.Scan() {
+			text := scannerStdout.Text()
+			if strings.TrimSpace(text) != "" {
+				outch <- text
+			}
+		}
+		wg.Done()
+	}()
+	scannerStderr := bufio.NewScanner(stderr)
+	scannerStderr.Split(bufio.ScanLines)
+	wg.Add(1)
+	go func() {
+		for scannerStderr.Scan() {
+			text := scannerStderr.Text()
+			if strings.TrimSpace(text) != "" {
+				outch <- text
+			}
+		}
+		wg.Done()
+	}()
+
+	go func() {
+		wg.Wait()
+		close(outch)
+		m2kqaservermetadatapath := filepath.Join(artifactpath, m2kQAServerMetadataFile)
+		os.RemoveAll(m2kqaservermetadatapath)
+		artifacts := filepath.Join(artifactpath, appName)
+		zip := archiver.NewZip()
+		err := zip.Archive([]string{artifacts}, artifacts+".zip")
+		if err != nil {
+			log.Errorf("Unable to create zip file : %s", err)
+		}
+	}()
+
+	for t := range outch {
+		if strings.Contains(t, port) {
+			translatech <- port
+			close(translatech)
+		}
+		log.Info(t)
+	}
+	return true
+}
+
+func (k *FileSystem) GetTargetArtifacts(appName string, artifact string) (file io.Reader, filename string) {
+	artifactpath := filepath.Join(appName, ArtifactsDirectoryName, artifact, appName+".zip")
+	m2kqaservermetadatapath := filepath.Join(appName, ArtifactsDirectoryName, artifact, m2kQAServerMetadataFile)
+	f, err := os.Open(artifactpath)
+	if err != nil {
+		log.Error(err)
+		if _, err := os.Stat(m2kqaservermetadatapath); os.IsNotExist(err) {
+			return nil, "error"
+		} else {
+			return nil, "ongoing"
+		}
+	} else {
+		return f, filepath.Base(artifactpath)
+	}
+}
+
+func (k *FileSystem) GetTargetArtifactsList(appName string) (artifacts []string) {
+	artifacts = []string{}
+	files, err := ioutil.ReadDir(filepath.Join(appName, ArtifactsDirectoryName))
+	if err != nil {
+		log.Error("Could not read applications.")
+		return artifacts
+	}
+
+	for _, f := range files {
+		if f.IsDir() && !strings.Contains(f.Name(), ".") {
+			artifacts = append(artifacts, filepath.Base(f.Name()))
+		}
+	}
+	return artifacts
+}
+
+func (k *FileSystem) DeleteTargetArtifacts(appName string, artifacts string) error {
+	err := os.RemoveAll(filepath.Join(appName, ArtifactsDirectoryName, artifacts))
+	if err != nil {
+		log.Errorf("Cannot delete file: %s", err)
+		return err
+	}
+	return nil
+}
+
+func (k *FileSystem) GetQuestion(appName string, artifact string) (problem string, err error) {
+	log.Infof("Getting question %s for %s", appName, artifact)
+	artifactpath := filepath.Join(appName, ArtifactsDirectoryName, artifact)
+	m2kqaservermetadatapath := filepath.Join(artifactpath, m2kQAServerMetadataFile)
+	metadatayaml := types.AppMetadata{}
+	err = ReadYaml(m2kqaservermetadatapath, &metadatayaml)
+	//TODO: Find a better way to orchestrate
+	if err != nil {
+		log.Infof("Artifact generation over for %s for %s", appName, artifact)
+		log.Info(err)
+		return "", nil
+	} else {
+		hostname := getDNSHostName()
+		if hostname == metadatayaml.Node {
+			urlstr := metadatayaml.Url + "/problems/current"
+			log.Infof("Getting question from %s", urlstr)
+			resp, err := http.Get(urlstr)
+			if err != nil {
+				log.Error(err)
+				return "", err
+			}
+			defer resp.Body.Close()
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				log.Error(err)
+				return "", err
+			}
+			log.Infof(string(body))
+			return string(body), nil
+		} else {
+			urlstr := "http://" + metadatayaml.Node + "/api/v1/applications/" + appName + "/targetartifacts/" + artifact + "/problems/current"
+			log.Infof("Getting question from %s", urlstr)
+			resp, err := http.Get(urlstr)
+			if err != nil {
+				log.Error(err)
+				return "", err
+			}
+			defer resp.Body.Close()
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				log.Error(err)
+				return "", err
+			}
+			log.Infof(string(body))
+			return string(body), nil
+		}
+	}
+}
+
+func (k *FileSystem) PostSolution(appName string, artifact string, solution string) error {
+	artifactpath := filepath.Join(appName, ArtifactsDirectoryName, artifact)
+	m2kqaservermetadatapath := filepath.Join(artifactpath, m2kQAServerMetadataFile)
+	metadatayaml := types.AppMetadata{}
+	err := ReadYaml(m2kqaservermetadatapath, &metadatayaml)
+	if err != nil {
+		return nil
+	} else {
+		hostname := getDNSHostName()
+		if hostname == metadatayaml.Node {
+			urlstr := metadatayaml.Url + "/problems/current/solution"
+			resp, err := http.Post(urlstr, "application/json", bytes.NewBuffer([]byte(solution)))
+			if err != nil {
+				log.Error(err)
+				return err
+			}
+			defer resp.Body.Close()
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				log.Error(err)
+				return err
+			}
+			log.Infof(string(body))
+			return nil
+		} else {
+			urlstr := "http://" + metadatayaml.Node + "/api/v1/applications/" + appName + "/targetartifacts/" + artifact + "/problems/current/solution"
+			resp, err := http.Post(urlstr, "application/json", bytes.NewBuffer([]byte(solution)))
+			if err != nil {
+				log.Error(err)
+				return err
+			}
+			defer resp.Body.Close()
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				log.Error(err)
+				return err
+			}
+			log.Infof(string(body))
+			return nil
+		}
+	}
+}
+
+func NewFileSystem() IApplication {
+	fileSystem := &FileSystem{}
+	applications := fileSystem.GetApplications()
+	for _, application := range applications {
+		artifacts := fileSystem.GetTargetArtifactsList(application.Name)
+		for _, artifact := range artifacts {
+			err := fileSystem.Translate(application.Name, artifact, "")
+			if err != nil {
+				log.Errorf("Error while starting translate : %s", err)
+			}
+		}
+		m2kplanongoing := filepath.Join(application.Name, m2kPlanOngoingFile+".*")
+		files, err := filepath.Glob(m2kplanongoing)
+		if err != nil {
+			log.Warn(err)
+		} else {
+			for _, f := range files {
+				if err := os.Remove(f); err != nil {
+					log.Warn(err)
+				}
+			}
+		}
+	}
+	return fileSystem
+}
+
+func doesPathExist(path string) (bool, error) {
+	if strings.HasSuffix(path, ".*") {
+		files, err := filepath.Glob(path)
+		if err != nil {
+			log.Errorf("Cannot get files : %s", err)
+			return false, nil
+		} else {
+			log.Infof("Got files : %s, %s", err, files)
+			if len(files) > 0 {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+	fileinfo, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	} else {
+		if fileinfo.IsDir() {
+			f, err := os.Open(path)
+			if err != nil {
+				return false, nil
+			}
+			defer f.Close()
+			_, err = f.Readdirnames(1) // Or f.Readdir(1)
+			if err == io.EOF {
+				return false, nil
+			}
+			return true, nil
+		} else {
+			return true, nil
+		}
+	}
+}
+
+// WriteYaml writes an yaml to disk
+func WriteYaml(outputPath string, data interface{}) error {
+	var b bytes.Buffer
+	encoder := yaml.NewEncoder(&b)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(data); err != nil {
+		log.Error("Error while Encoding object")
+		return err
+	}
+	err := ioutil.WriteFile(outputPath, b.Bytes(), 0666)
+	if err != nil {
+		log.Errorf("Error writing yaml to file: %s", err)
+		return err
+	}
+	return nil
+}
+
+// ReadYaml reads an yaml into an object
+func ReadYaml(file string, data interface{}) error {
+	yamlFile, err := ioutil.ReadFile(file)
+	if err != nil {
+		log.Debugf("Error in reading yaml file %s: %s.", file, err)
+		return err
+	}
+	err = yaml.Unmarshal(yamlFile, data)
+	if err != nil {
+		log.Debugf("Error in unmarshalling yaml file %s: %s.", file, err)
+		return err
+	}
+	return nil
+}
+
+func getDNSHostName() string {
+	dnsHostName := ""
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		log.Debugf("%s", err)
+		return ""
+	}
+
+	// handle err
+	for _, i := range ifaces {
+		addrs, err := i.Addrs()
+		if err != nil {
+			log.Debugf("%s", err)
+		}
+
+		// handle err
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			ptr, _ := net.LookupAddr(ip.String())
+			for _, ptrvalue := range ptr {
+				log.Infof("HostNames : %s", ptrvalue)
+				if len(dnsHostName) <= len(ptrvalue) {
+					dnsHostName = ptrvalue
+				}
+			}
+		}
+	}
+	log.Infof("Chosen hostname : %s", dnsHostName)
+	return dnsHostName
+}
