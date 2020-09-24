@@ -12,15 +12,14 @@ WORKDIR $GOPATH
 ENV PATH=$GOPATH/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 RUN mkdir -p $GOPATH/src $GOPATH/bin && chmod -R 777 $GOPATH
 # Download source and build
-RUN yum install -y make
+RUN yum install git make -y 
 WORKDIR $GOPATH/src/move2kube-api
 COPY go.mod .
 COPY go.sum .
-COPY Makefile .
-RUN make get
+RUN go mod download
 COPY . .
 # Build
-RUN make install
+RUN make build 
 
 # Run image
 FROM quay.io/konveyor/move2kube:latest
