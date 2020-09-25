@@ -1,3 +1,4 @@
+ARG VERSION=latest
 # Build image
 FROM registry.access.redhat.com/ubi8/ubi:latest AS build_base
 
@@ -22,7 +23,7 @@ COPY . .
 RUN make build 
 
 # Run image
-FROM quay.io/konveyor/move2kube:latest
+FROM quay.io/konveyor/move2kube:$VERSION
 # Install move2kube-api
 COPY --from=build_base /go/bin/move2kube-api /bin/move2kube-api
 # Start app
