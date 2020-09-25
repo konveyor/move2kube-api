@@ -19,8 +19,8 @@ after_success:
   - echo "$QUAY_BOT_PASSWORD" | docker login --username "$QUAY_BOT_USERNAME" --password-stdin quay.io
   - make cbuild
   - make cpush
-  - docker tag quay.io/konveyor/move2kube:latest quay.io/konveyor/move2kube:$TRAVIS_BRANCH
-  - docker push quay.io/konveyor/move2kube:$TRAVIS_BRANCH
+  - docker tag quay.io/konveyor/move2kube-api:latest quay.io/konveyor/move2kube-api:$TRAVIS_BRANCH
+  - docker push quay.io/konveyor/move2kube-api:$TRAVIS_BRANCH
   - make test-coverage
   - bash <(curl -s https://codecov.io/bash)
 
