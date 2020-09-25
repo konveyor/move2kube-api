@@ -9,6 +9,10 @@
 
 Move2Kube API provides a REST interface to interact with move2kube [command line tool](https://github.com/konveyor/move2kube).
 
+## Usage
+
+Run using container from registry using `make crun`
+
 ## Setup
 
 1. Obtain a recent version of `golang`. Known to work with `1.15`.
@@ -21,6 +25,8 @@ Move2Kube API provides a REST interface to interact with move2kube [command line
    1. `cd $GOPATH/src/move2kube-api`
 1. Build: `make build`
 1. Run unit tests: `make test`
+1. Run image build: `make cbuild`
+1. Run image: `make crun`
 
 ## Discussion
 
