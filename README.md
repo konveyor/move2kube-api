@@ -5,7 +5,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/konveyor/move2kube-api)](https://goreportcard.com/report/github.com/konveyor/move2kube-api)
 [<img src="http://img.shields.io/badge/slack-konveyor/move2kube-green.svg?logo=slack">](https://cloud-native.slack.com/archives/C01AJ5WCXGF)
 
-# move2kube-api
+# Move2Kube-API
 
 Move2Kube API provides a REST interface to interact with move2kube [command line tool](https://github.com/konveyor/move2kube).
 

@@ -160,3 +160,7 @@ cbuild: ## Build docker image
 cpush: ## Push docker image
 	@docker push ${REGISTRYNS}/${BINNAME}:latest
 	@docker push ${REGISTRYNS}/${BINNAME}:${VERSION}
+
+.PHONY: crun
+crun: ## Run docker image
+	@docker run -p 8080:8080 -v /var/run/docker.sock:/var/run/docker.sock -v ${PWD}/:/wksps ${REGISTRYNS}/${BINNAME}:${VERSION}
