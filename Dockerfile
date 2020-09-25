@@ -37,7 +37,7 @@ COPY . .
 RUN make build 
 
 # Run image
-FROM quay.io/konveyor/move2kube:$VERSION
+FROM quay.io/konveyor/move2kube:${VERSION}
 # Install move2kube-api
 COPY --from=build_base /go/bin/move2kube-api /bin/move2kube-api
 # Start app
