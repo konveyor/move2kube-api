@@ -51,6 +51,7 @@ const (
 	m2kplanfilename         = AppNameShort + ".plan"
 	m2kQAServerMetadataFile = "." + AppNameShort + "qa"
 	m2kPlanOngoingFile      = "." + AppNameShort + "plan"
+	apiServerPort           = 8080
 )
 
 type FileSystem struct {
@@ -570,7 +571,7 @@ func (k *FileSystem) GetQuestion(appName string, artifact string) (problem strin
 			log.Infof(string(body))
 			return string(body), nil
 		} else {
-			urlstr := "http://" + metadatayaml.Node + "/api/v1/applications/" + appName + "/targetartifacts/" + artifact + "/problems/current"
+			urlstr := "http://" + metadatayaml.Node + ":" + strconv.Itoa(apiServerPort) + "/api/v1/applications/" + appName + "/targetartifacts/" + artifact + "/problems/current"
 			log.Infof("Getting question from %s", urlstr)
 			resp, err := http.Get(urlstr)
 			if err != nil {
@@ -614,7 +615,7 @@ func (k *FileSystem) PostSolution(appName string, artifact string, solution stri
 			log.Infof(string(body))
 			return nil
 		} else {
-			urlstr := "http://" + metadatayaml.Node + "/api/v1/applications/" + appName + "/targetartifacts/" + artifact + "/problems/current/solution"
+			urlstr := "http://" + metadatayaml.Node + ":" + strconv.Itoa(apiServerPort) + "/api/v1/applications/" + appName + "/targetartifacts/" + artifact + "/problems/current/solution"
 			resp, err := http.Post(urlstr, "application/json", bytes.NewBuffer([]byte(solution)))
 			if err != nil {
 				log.Error(err)
