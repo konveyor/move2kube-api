@@ -1,9 +1,9 @@
 [![Build Status](https://travis-ci.com/konveyor/move2kube-api.svg?branch=master)](https://travis-ci.com/konveyor/move2kube-api)
 [![Docker Repository on Quay](https://quay.io/repository/konveyor/move2kube-api/status "Docker Repository on Quay")](https://quay.io/repository/konveyor/move2kube-api)
-[![License](http://img.shields.io/:license-apache-blue.svg)](http://www.apache.org/licenses/LICENSE-2.0.html)
+[![License](https://img.shields.io/:license-apache-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
 [![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat)](https://github.com/konveyor/move2kube-api/pulls)
 [![Go Report Card](https://goreportcard.com/badge/github.com/konveyor/move2kube-api)](https://goreportcard.com/report/github.com/konveyor/move2kube-api)
-[<img src="http://img.shields.io/badge/slack-konveyor/move2kube-green.svg?logo=slack">](https://kubernetes.slack.com/archives/CR85S82A2)
+[<img src="https://img.shields.io/badge/slack-konveyor/move2kube-green.svg?logo=slack">](https://kubernetes.slack.com/archives/CR85S82A2)
 
 # Move2Kube-API
 
