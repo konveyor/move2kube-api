@@ -32,7 +32,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/mholt/archiver"
+	archiver "github.com/mholt/archiver/v3"
 	"github.com/phayes/freeport"
 	"gopkg.in/yaml.v3"
 
