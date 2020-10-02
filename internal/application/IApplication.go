@@ -20,6 +20,14 @@ import (
 	"io"
 )
 
+const (
+	// appName stores the application name
+	appName = "move2kube"
+	// appNameShirt stores the application shortname
+	appNameShort = "m2k"
+)
+
+// IApplication defines interfact that can manage Move2Kube applications
 type IApplication interface {
 	Download() (file io.Reader, filename string)
 	GetApplications() []Application
@@ -42,20 +50,27 @@ type IApplication interface {
 	PostSolution(appName string, artifact string, solution string) error
 }
 
+// ApplicationStatus stores the current application status
 type ApplicationStatus string
 
 const (
-	ApplicationStatusPlan      ApplicationStatus = "plan"
-	ApplicationStatusPlanning  ApplicationStatus = "planning"
-	ApplicationStatusAssets    ApplicationStatus = "assets"
+	// ApplicationStatusPlan indicates the application has a plan
+	ApplicationStatusPlan ApplicationStatus = "plan"
+	// ApplicationStatusPlanning indicates the application is currently computing a plan
+	ApplicationStatusPlanning ApplicationStatus = "planning"
+	// ApplicationStatusAssets indicates the application has assets
+	ApplicationStatusAssets ApplicationStatus = "assets"
+	// ApplicationStatusArtifacts indicates the application has application artifacts generated
 	ApplicationStatusArtifacts ApplicationStatus = "artifacts"
 )
 
+// Application stores the application metadata
 type Application struct {
 	Name   string              `json:"name"`
 	Status []ApplicationStatus `json:"status"`
 }
 
+// Applications stores the list of application metadatas
 type Applications struct {
 	Applications []Application `json:"applications"`
 }
