@@ -62,15 +62,14 @@ func (k *FileSystem) Download() (file io.Reader, filename string) {
 	if err != nil {
 		log.Warnf("Unable to find "+AppName+" : %v", err)
 		return nil, ""
-	} else {
-		f, err := os.Open(path)
-		if err != nil {
-			log.Errorf("Cannot get file: %s", err)
-			return nil, ""
-		} else {
-			return f, filepath.Base(path)
-		}
 	}
+	f, err := os.Open(path)
+	if err != nil {
+		log.Errorf("Cannot get file: %s", err)
+		return nil, ""
+	}
+	return f, filepath.Base(path)
+
 }
 
 func (k *FileSystem) NewApplication(application Application) error {
@@ -78,7 +77,7 @@ func (k *FileSystem) NewApplication(application Application) error {
 	_, err := os.Stat(application.Name)
 	if !os.IsNotExist(err) {
 		log.Errorf("Application %s already exists.", application.Name)
-		return fmt.Errorf("Already exists.")
+		return fmt.Errorf("already exists")
 	}
 
 	err = os.MkdirAll(application.Name, 0777)
@@ -95,25 +94,24 @@ func (d *FileSystem) GetApplication(name string) (Application, error) {
 	if os.IsNotExist(err) {
 		log.Errorf("Application %s does not exist.", name)
 		return app, fmt.Errorf("Not Found")
-	} else {
-		status := []ApplicationStatus{}
-		//Checks for contents too if the dir exists
-		if exists, _ := doesPathExist(filepath.Join(name, AssetsDirectory)); exists {
-			status = append(status, ApplicationStatusAssets)
-		}
-		if exists, _ := doesPathExist(filepath.Join(name, ArtifactsDirectoryName)); exists {
-			status = append(status, ApplicationStatusArtifacts)
-		}
-		if exists, _ := doesPathExist(filepath.Join(name, "m2k.plan")); exists {
-			status = append(status, ApplicationStatusPlan)
-		}
-		if exists, _ := doesPathExist(filepath.Join(name, m2kPlanOngoingFile+".*")); exists {
-			status = append(status, ApplicationStatusPlanning)
-		}
-		app.Status = status
-		log.Infof("Application : %+v", app)
-		return app, nil
 	}
+	status := []ApplicationStatus{}
+	//Checks for contents too if the dir exists
+	if exists, _ := doesPathExist(filepath.Join(name, AssetsDirectory)); exists {
+		status = append(status, ApplicationStatusAssets)
+	}
+	if exists, _ := doesPathExist(filepath.Join(name, ArtifactsDirectoryName)); exists {
+		status = append(status, ApplicationStatusArtifacts)
+	}
+	if exists, _ := doesPathExist(filepath.Join(name, "m2k.plan")); exists {
+		status = append(status, ApplicationStatusPlan)
+	}
+	if exists, _ := doesPathExist(filepath.Join(name, m2kPlanOngoingFile+".*")); exists {
+		status = append(status, ApplicationStatusPlanning)
+	}
+	app.Status = status
+	log.Infof("Application : %+v", app)
+	return app, nil
 }
 
 func (k *FileSystem) GetApplications() []Application {
@@ -193,10 +191,9 @@ func (k *FileSystem) UploadAsset(appName string, filename string, file io.Reader
 				err = archiver.NewTarGz().Unarchive(archivefilePath, srcDirectoryPath)
 				if err == nil {
 					return nil
-				} else {
-					log.Error(err)
-					return err
 				}
+				log.Error(err)
+				return err
 			}
 		}
 	}
@@ -228,15 +225,13 @@ func (k *FileSystem) GetAsset(appName string, asset string) (file io.Reader, fil
 	if err != nil || len(files) == 0 {
 		log.Errorf("Cannot open file to write : %s", err)
 		return nil, ""
-	} else {
-		f, err := os.Open(files[0])
-		if err != nil {
-			log.Errorf("Cannot get file: %s", err)
-			return nil, ""
-		} else {
-			return f, filepath.Base(files[0])
-		}
 	}
+	f, err := os.Open(files[0])
+	if err != nil {
+		log.Errorf("Cannot get file: %s", err)
+		return nil, ""
+	}
+	return f, filepath.Base(files[0])
 }
 
 func (k *FileSystem) GetAssetsList(appName string) (assets []string) {
@@ -354,9 +349,8 @@ func (k *FileSystem) GetPlan(appName string) (file io.Reader, filename string) {
 	if err != nil {
 		log.Errorf("Cannot get file: %s", err)
 		return nil, ""
-	} else {
-		return f, m2kplanfilename
 	}
+	return f, m2kplanfilename
 }
 
 func (k *FileSystem) DeletePlan(appName string) error {
@@ -406,13 +400,13 @@ func (k *FileSystem) Translate(appName, artifactName, plan string) error {
 	log.Infof("Waiting for QA engine to start for app %s", appName)
 	port := <-translatech
 	appmetadata := types.AppMetadata{}
-	appmetadata.Url = "http://localhost:" + port
+	appmetadata.URL = "http://localhost:" + port
 	appmetadata.Node = getDNSHostName()
 	if appmetadata.Node == "" {
 		appmetadata.Node = "localhost"
 	}
 	log.Infof("Setting hostname as %s", appmetadata.Node)
-	log.Infof("QA engine to started for app %s at %s", appName, appmetadata.Url)
+	log.Infof("QA engine to started for app %s at %s", appName, appmetadata.URL)
 
 	err = WriteYaml(m2kqaservermetadatapath, appmetadata)
 	if err != nil {
@@ -420,7 +414,7 @@ func (k *FileSystem) Translate(appName, artifactName, plan string) error {
 		return err
 	}
 
-	log.Infof("Translation started for application %s with url %s", appName, appmetadata.Url)
+	log.Infof("Translation started for application %s with url %s", appName, appmetadata.URL)
 	return nil
 }
 
@@ -508,12 +502,10 @@ func (k *FileSystem) GetTargetArtifacts(appName string, artifact string) (file i
 		log.Error(err)
 		if _, err := os.Stat(m2kqaservermetadatapath); os.IsNotExist(err) {
 			return nil, "error"
-		} else {
-			return nil, "ongoing"
 		}
-	} else {
-		return f, filepath.Base(artifactpath)
+		return nil, "ongoing"
 	}
+	return f, filepath.Base(artifactpath)
 }
 
 func (k *FileSystem) GetTargetArtifactsList(appName string) (artifacts []string) {
@@ -552,42 +544,40 @@ func (k *FileSystem) GetQuestion(appName string, artifact string) (problem strin
 		log.Infof("Artifact generation over for %s for %s", appName, artifact)
 		log.Info(err)
 		return "", nil
-	} else {
-		hostname := getDNSHostName()
-		if hostname == metadatayaml.Node {
-			urlstr := metadatayaml.Url + "/problems/current"
-			log.Infof("Getting question from %s", urlstr)
-			resp, err := http.Get(urlstr)
-			if err != nil {
-				log.Error(err)
-				return "", err
-			}
-			defer resp.Body.Close()
-			body, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				log.Error(err)
-				return "", err
-			}
-			log.Infof(string(body))
-			return string(body), nil
-		} else {
-			urlstr := "http://" + metadatayaml.Node + ":" + strconv.Itoa(apiServerPort) + "/api/v1/applications/" + appName + "/targetartifacts/" + artifact + "/problems/current"
-			log.Infof("Getting question from %s", urlstr)
-			resp, err := http.Get(urlstr)
-			if err != nil {
-				log.Error(err)
-				return "", err
-			}
-			defer resp.Body.Close()
-			body, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				log.Error(err)
-				return "", err
-			}
-			log.Infof(string(body))
-			return string(body), nil
-		}
 	}
+	hostname := getDNSHostName()
+	if hostname == metadatayaml.Node {
+		urlstr := metadatayaml.URL + "/problems/current"
+		log.Infof("Getting question from %s", urlstr)
+		resp, err := http.Get(urlstr)
+		if err != nil {
+			log.Error(err)
+			return "", err
+		}
+		defer resp.Body.Close()
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Error(err)
+			return "", err
+		}
+		log.Infof(string(body))
+		return string(body), nil
+	}
+	urlstr := "http://" + metadatayaml.Node + ":" + strconv.Itoa(apiServerPort) + "/api/v1/applications/" + appName + "/targetartifacts/" + artifact + "/problems/current"
+	log.Infof("Getting question from %s", urlstr)
+	resp, err := http.Get(urlstr)
+	if err != nil {
+		log.Error(err)
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Error(err)
+		return "", err
+	}
+	log.Infof(string(body))
+	return string(body), nil
 }
 
 func (k *FileSystem) PostSolution(appName string, artifact string, solution string) error {
@@ -597,40 +587,39 @@ func (k *FileSystem) PostSolution(appName string, artifact string, solution stri
 	err := ReadYaml(m2kqaservermetadatapath, &metadatayaml)
 	if err != nil {
 		return nil
-	} else {
-		hostname := getDNSHostName()
-		if hostname == metadatayaml.Node {
-			urlstr := metadatayaml.Url + "/problems/current/solution"
-			resp, err := http.Post(urlstr, "application/json", bytes.NewBuffer([]byte(solution)))
-			if err != nil {
-				log.Error(err)
-				return err
-			}
-			defer resp.Body.Close()
-			body, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				log.Error(err)
-				return err
-			}
-			log.Infof(string(body))
-			return nil
-		} else {
-			urlstr := "http://" + metadatayaml.Node + ":" + strconv.Itoa(apiServerPort) + "/api/v1/applications/" + appName + "/targetartifacts/" + artifact + "/problems/current/solution"
-			resp, err := http.Post(urlstr, "application/json", bytes.NewBuffer([]byte(solution)))
-			if err != nil {
-				log.Error(err)
-				return err
-			}
-			defer resp.Body.Close()
-			body, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				log.Error(err)
-				return err
-			}
-			log.Infof(string(body))
-			return nil
-		}
 	}
+	hostname := getDNSHostName()
+	if hostname == metadatayaml.Node {
+		urlstr := metadatayaml.URL + "/problems/current/solution"
+		resp, err := http.Post(urlstr, "application/json", bytes.NewBuffer([]byte(solution)))
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+		defer resp.Body.Close()
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+		log.Infof(string(body))
+		return nil
+	}
+	urlstr := "http://" + metadatayaml.Node + ":" + strconv.Itoa(apiServerPort) + "/api/v1/applications/" + appName + "/targetartifacts/" + artifact + "/problems/current/solution"
+	resp, err := http.Post(urlstr, "application/json", bytes.NewBuffer([]byte(solution)))
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	log.Infof(string(body))
+	return nil
+
 }
 
 func NewFileSystem() IApplication {
@@ -665,11 +654,10 @@ func doesPathExist(path string) (bool, error) {
 		if err != nil {
 			log.Errorf("Cannot get files : %s", err)
 			return false, nil
-		} else {
-			log.Infof("Got files : %s, %s", err, files)
-			if len(files) > 0 {
-				return true, nil
-			}
+		}
+		log.Infof("Got files : %s, %s", err, files)
+		if len(files) > 0 {
+			return true, nil
 		}
 		return false, nil
 	}
@@ -690,9 +678,8 @@ func doesPathExist(path string) (bool, error) {
 				return false, nil
 			}
 			return true, nil
-		} else {
-			return true, nil
 		}
+		return true, nil
 	}
 }
 
