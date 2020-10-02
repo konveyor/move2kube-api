@@ -18,7 +18,6 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -34,13 +33,13 @@ import (
 	"github.com/gorilla/mux"
 )
 
-var m2kapp application.IApplication
+var m2kapp application.IApplication = application.NewFileSystem()
 
 func swagger(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Swagger will come here!")
 }
 
-func GetApplications(w http.ResponseWriter, r *http.Request) {
+func getApplications(w http.ResponseWriter, r *http.Request) {
 	applications := m2kapp.GetApplications()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -50,7 +49,7 @@ func GetApplications(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func CreateApplication(w http.ResponseWriter, r *http.Request) {
+func createApplication(w http.ResponseWriter, r *http.Request) {
 	var newApp application.Application
 	/*reqBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -79,7 +78,7 @@ func CreateApplication(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func GetApplication(w http.ResponseWriter, r *http.Request) {
+func getApplication(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	app, err := m2kapp.GetApplication(name)
 	if err != nil {
@@ -95,7 +94,7 @@ func GetApplication(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func DeleteApplication(w http.ResponseWriter, r *http.Request) {
+func deleteApplication(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	err := m2kapp.DeleteApplication(name)
 	if err != nil {
@@ -106,7 +105,7 @@ func DeleteApplication(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func UploadAsset(w http.ResponseWriter, r *http.Request) {
+func uploadAsset(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	file, handler, err := r.FormFile("file")
 	if err != nil {
@@ -127,7 +126,7 @@ func UploadAsset(w http.ResponseWriter, r *http.Request) {
 	log.Infof("Asset %s uploaded successfully for app %s", handler.Filename, name)
 }
 
-func GetAssetsList(w http.ResponseWriter, r *http.Request) {
+func getAssetsList(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 
 	assets := m2kapp.GetAssetsList(name)
@@ -144,7 +143,7 @@ func GetAssetsList(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func GetAsset(w http.ResponseWriter, r *http.Request) {
+func getAsset(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	asset := mux.Vars(r)["asset"]
 
@@ -163,7 +162,7 @@ func GetAsset(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func DeleteAsset(w http.ResponseWriter, r *http.Request) {
+func deleteAsset(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	asset := mux.Vars(r)["asset"]
 
@@ -179,7 +178,7 @@ func DeleteAsset(w http.ResponseWriter, r *http.Request) {
 	log.Infof("Asset %s deleted successfully for app %s", asset, name)
 }
 
-func GenerateTargetArtifacts(w http.ResponseWriter, r *http.Request) {
+func generateTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	plan := r.FormValue("plan")
 
@@ -205,7 +204,7 @@ func GenerateTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func GetTargetArtifacts(w http.ResponseWriter, r *http.Request) {
+func getTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	artifact := mux.Vars(r)["artifact"]
 
@@ -228,7 +227,7 @@ func GetTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func GetTargetArtifactsList(w http.ResponseWriter, r *http.Request) {
+func getTargetArtifactsList(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 
 	artifacts := m2kapp.GetTargetArtifactsList(name)
@@ -245,7 +244,7 @@ func GetTargetArtifactsList(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func DeleteTargetArtifacts(w http.ResponseWriter, r *http.Request) {
+func deleteTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	artifact := mux.Vars(r)["artifact"]
 
@@ -261,7 +260,7 @@ func DeleteTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 	log.Infof("Asset %s deleted successfully for app %s", artifact, name)
 }
 
-func StartPlan(w http.ResponseWriter, r *http.Request) {
+func startPlan(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 
 	err := m2kapp.GeneratePlan(name)
@@ -274,7 +273,7 @@ func StartPlan(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func UpdatePlan(w http.ResponseWriter, r *http.Request) {
+func updatePlan(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	planfile := r.FormValue("plan")
 
@@ -288,7 +287,7 @@ func UpdatePlan(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func GetPlan(w http.ResponseWriter, r *http.Request) {
+func getPlan(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 
 	plan, filename := m2kapp.GetPlan(name)
@@ -309,7 +308,7 @@ func GetPlan(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func DeletePlan(w http.ResponseWriter, r *http.Request) {
+func deletePlan(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 
 	err := m2kapp.DeletePlan(name)
@@ -321,7 +320,7 @@ func DeletePlan(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func GetQuestion(w http.ResponseWriter, r *http.Request) {
+func getQuestion(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	artifacts := mux.Vars(r)["artifacts"]
 	problem, err := m2kapp.GetQuestion(name, artifacts)
@@ -337,7 +336,7 @@ func GetQuestion(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func PostSolution(w http.ResponseWriter, r *http.Request) {
+func postSolution(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	artifacts := mux.Vars(r)["artifacts"]
 	solution, err := ioutil.ReadAll(r.Body)
@@ -354,7 +353,7 @@ func PostSolution(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func Download(w http.ResponseWriter, r *http.Request) {
+func download(w http.ResponseWriter, r *http.Request) {
 	file, filename := m2kapp.Download()
 	if file == nil {
 		log.Errorf("Could not get binary")
@@ -371,45 +370,34 @@ func Download(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	mode := flag.String("mode", "filesystem", "filesystem or operator")
-
-	switch *mode {
-	case "filesystem":
-		m2kapp = application.NewFileSystem()
-	case "operator":
-		m2kapp = application.NewFileSystem()
-	default:
-		m2kapp = application.NewFileSystem()
-	}
-
 	router := mux.NewRouter().StrictSlash(true)
 	//router.Handle("/", handlers.LoggingHandler(os.Stdout, http.HandlerFunc(swagger)))
 	router.HandleFunc("/", swagger)
 	router.HandleFunc("/api/v1/", swagger)
 
-	router.HandleFunc("/api/v1/download", Download).Methods("GET")
-	router.HandleFunc("/api/v1/applications", CreateApplication).Methods("POST")
-	router.HandleFunc("/api/v1/applications", GetApplications).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}", GetApplication).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}", DeleteApplication).Methods("DELETE")
+	router.HandleFunc("/api/v1/download", download).Methods("GET")
+	router.HandleFunc("/api/v1/applications", createApplication).Methods("POST")
+	router.HandleFunc("/api/v1/applications", getApplications).Methods("GET")
+	router.HandleFunc("/api/v1/applications/{name}", getApplication).Methods("GET")
+	router.HandleFunc("/api/v1/applications/{name}", deleteApplication).Methods("DELETE")
 
-	router.HandleFunc("/api/v1/applications/{name}/assets", GetAssetsList).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}/assets", UploadAsset).Methods("POST")
-	router.HandleFunc("/api/v1/applications/{name}/assets/{asset}", DeleteAsset).Methods("DELETE")
-	router.HandleFunc("/api/v1/applications/{name}/assets/{asset}", GetAsset).Methods("GET")
+	router.HandleFunc("/api/v1/applications/{name}/assets", getAssetsList).Methods("GET")
+	router.HandleFunc("/api/v1/applications/{name}/assets", uploadAsset).Methods("POST")
+	router.HandleFunc("/api/v1/applications/{name}/assets/{asset}", deleteAsset).Methods("DELETE")
+	router.HandleFunc("/api/v1/applications/{name}/assets/{asset}", getAsset).Methods("GET")
 
-	router.HandleFunc("/api/v1/applications/{name}/targetartifacts", GetTargetArtifactsList).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}/targetartifacts", GenerateTargetArtifacts).Methods("POST")
-	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifact}", GetTargetArtifacts).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifact}", DeleteTargetArtifacts).Methods("DELETE")
+	router.HandleFunc("/api/v1/applications/{name}/targetartifacts", getTargetArtifactsList).Methods("GET")
+	router.HandleFunc("/api/v1/applications/{name}/targetartifacts", generateTargetArtifacts).Methods("POST")
+	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifact}", getTargetArtifacts).Methods("GET")
+	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifact}", deleteTargetArtifacts).Methods("DELETE")
 
-	router.HandleFunc("/api/v1/applications/{name}/plan", GetPlan).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}/plan", StartPlan).Methods("POST")
-	router.HandleFunc("/api/v1/applications/{name}/plan", UpdatePlan).Methods("PUT")
-	router.HandleFunc("/api/v1/applications/{name}/plan", DeletePlan).Methods("DELETE")
+	router.HandleFunc("/api/v1/applications/{name}/plan", getPlan).Methods("GET")
+	router.HandleFunc("/api/v1/applications/{name}/plan", startPlan).Methods("POST")
+	router.HandleFunc("/api/v1/applications/{name}/plan", updatePlan).Methods("PUT")
+	router.HandleFunc("/api/v1/applications/{name}/plan", deletePlan).Methods("DELETE")
 
-	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifacts}/problems/current", GetQuestion).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifacts}/problems/current/solution", PostSolution).Methods("POST")
+	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifacts}/problems/current", getQuestion).Methods("GET")
+	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifacts}/problems/current/solution", postSolution).Methods("POST")
 
 	log.Fatal(http.ListenAndServe(":8080", router))
 }

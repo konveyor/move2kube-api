@@ -16,6 +16,7 @@ limitations under the License.
 
 package types
 
+// AppMetadata stores serializable runtime REST access information
 type AppMetadata struct {
 	Node string `yaml:"node"`
 	URL  string `yaml:"url"`

@@ -42,25 +42,25 @@ import (
 )
 
 const (
-	AppName                 = "move2kube"
-	AppNameShort            = "m2k"
-	AssetsDirectory         = string(ApplicationStatusAssets)
-	ArtifactsDirectoryName  = string(ApplicationStatusArtifacts)
-	ArchivesDirectory       = "archives"
-	SrcDirectory            = "src"
-	m2kplanfilename         = AppNameShort + ".plan"
-	m2kQAServerMetadataFile = "." + AppNameShort + "qa"
-	m2kPlanOngoingFile      = "." + AppNameShort + "plan"
+	assetsDirectory         = string(ApplicationStatusAssets)
+	artifactsDirectoryName  = string(ApplicationStatusArtifacts)
+	archivesDirectory       = "archives"
+	srcDirectory            = "src"
+	m2kplanfilename         = appNameShort + ".plan"
+	m2kQAServerMetadataFile = "." + appNameShort + "qa"
+	m2kPlanOngoingFile      = "." + appNameShort + "plan"
 	apiServerPort           = 8080
 )
 
+// FileSystem implements the IApplication interface and manages the application data in a filesystem
 type FileSystem struct {
 }
 
-func (k *FileSystem) Download() (file io.Reader, filename string) {
-	path, err := exec.LookPath(AppName)
+// Download returns the app binary
+func (a *FileSystem) Download() (file io.Reader, filename string) {
+	path, err := exec.LookPath(appName)
 	if err != nil {
-		log.Warnf("Unable to find "+AppName+" : %v", err)
+		log.Warnf("Unable to find "+appName+" : %v", err)
 		return nil, ""
 	}
 	f, err := os.Open(path)
@@ -72,7 +72,8 @@ func (k *FileSystem) Download() (file io.Reader, filename string) {
 
 }
 
-func (k *FileSystem) NewApplication(application Application) error {
+// NewApplication creates a new application in the filesystem
+func (a *FileSystem) NewApplication(application Application) error {
 	log.Infof("Creating application : %s", application.Name)
 	_, err := os.Stat(application.Name)
 	if !os.IsNotExist(err) {
@@ -88,7 +89,8 @@ func (k *FileSystem) NewApplication(application Application) error {
 	return nil
 }
 
-func (d *FileSystem) GetApplication(name string) (Application, error) {
+// GetApplication returns the metadata about an application
+func (a *FileSystem) GetApplication(name string) (Application, error) {
 	app := Application{Name: name}
 	_, err := os.Stat(name)
 	if os.IsNotExist(err) {
@@ -97,10 +99,10 @@ func (d *FileSystem) GetApplication(name string) (Application, error) {
 	}
 	status := []ApplicationStatus{}
 	//Checks for contents too if the dir exists
-	if exists, _ := doesPathExist(filepath.Join(name, AssetsDirectory)); exists {
+	if exists, _ := doesPathExist(filepath.Join(name, assetsDirectory)); exists {
 		status = append(status, ApplicationStatusAssets)
 	}
-	if exists, _ := doesPathExist(filepath.Join(name, ArtifactsDirectoryName)); exists {
+	if exists, _ := doesPathExist(filepath.Join(name, artifactsDirectoryName)); exists {
 		status = append(status, ApplicationStatusArtifacts)
 	}
 	if exists, _ := doesPathExist(filepath.Join(name, "m2k.plan")); exists {
@@ -114,7 +116,8 @@ func (d *FileSystem) GetApplication(name string) (Application, error) {
 	return app, nil
 }
 
-func (k *FileSystem) GetApplications() []Application {
+// GetApplications returns the list of applications
+func (a *FileSystem) GetApplications() []Application {
 	applications := []Application{}
 	files, err := ioutil.ReadDir("./")
 	if err != nil {
@@ -124,7 +127,7 @@ func (k *FileSystem) GetApplications() []Application {
 
 	for _, f := range files {
 		if f.IsDir() && !strings.Contains(f.Name(), ".") && !strings.Contains(f.Name(), "+") {
-			app, err := k.GetApplication(f.Name())
+			app, err := a.GetApplication(f.Name())
 			if err == nil {
 				applications = append(applications, app)
 			}
@@ -133,21 +136,23 @@ func (k *FileSystem) GetApplications() []Application {
 	return applications
 }
 
-func (k *FileSystem) DeleteApplication(name string) error {
+// DeleteApplication deletes an application from the filesysem
+func (a *FileSystem) DeleteApplication(name string) error {
 	return os.RemoveAll(name)
 }
 
-func (k *FileSystem) UploadAsset(appName string, filename string, file io.Reader) error {
-	_, err := k.GetApplication(appName)
+// UploadAsset uploads an asset into the filesystem
+func (a *FileSystem) UploadAsset(appName string, filename string, file io.Reader) error {
+	_, err := a.GetApplication(appName)
 	if err != nil {
 		log.Error("Application does not exist")
 		return err
 	}
 
-	archivefilePath := filepath.Join(appName, AssetsDirectory, ArchivesDirectory, filename)
-	srcDirectoryPath := strings.Split(filepath.Join(appName, AssetsDirectory, SrcDirectory, filename), ".")[0]
+	archivefilePath := filepath.Join(appName, assetsDirectory, archivesDirectory, filename)
+	srcDirectoryPath := strings.Split(filepath.Join(appName, assetsDirectory, srcDirectory, filename), ".")[0]
 	os.RemoveAll(srcDirectoryPath)
-	err = os.MkdirAll(filepath.Join(appName, AssetsDirectory, ArchivesDirectory), 0777)
+	err = os.MkdirAll(filepath.Join(appName, assetsDirectory, archivesDirectory), 0777)
 	if err != nil {
 		log.Error(err)
 		return err
@@ -158,7 +163,7 @@ func (k *FileSystem) UploadAsset(appName string, filename string, file io.Reader
 		return err
 	}
 
-	err = ioutil.WriteFile(filepath.Join(appName, AssetsDirectory, SrcDirectory, ".m2kignore"), []byte("."), 0777)
+	err = ioutil.WriteFile(filepath.Join(appName, assetsDirectory, srcDirectory, ".m2kignore"), []byte("."), 0777)
 	if err != nil {
 		log.Error(err)
 		return err
@@ -200,8 +205,9 @@ func (k *FileSystem) UploadAsset(appName string, filename string, file io.Reader
 	return nil
 }
 
-func (k *FileSystem) DeleteAsset(appName string, asset string) error {
-	files, err := filepath.Glob(filepath.Join(appName, AssetsDirectory, ArchivesDirectory, asset) + ".*")
+// DeleteAsset deletes an application asset
+func (a *FileSystem) DeleteAsset(appName string, asset string) error {
+	files, err := filepath.Glob(filepath.Join(appName, assetsDirectory, archivesDirectory, asset) + ".*")
 	if err != nil {
 		log.Errorf("Cannot get files to delete : %s", err)
 		return err
@@ -212,7 +218,7 @@ func (k *FileSystem) DeleteAsset(appName string, asset string) error {
 			return err
 		}
 	}
-	os.RemoveAll(filepath.Join(appName, AssetsDirectory, SrcDirectory, asset))
+	os.RemoveAll(filepath.Join(appName, assetsDirectory, srcDirectory, asset))
 	if err != nil {
 		log.Errorf("Cannot delete files : %s", err)
 		return err
@@ -220,8 +226,9 @@ func (k *FileSystem) DeleteAsset(appName string, asset string) error {
 	return nil
 }
 
-func (k *FileSystem) GetAsset(appName string, asset string) (file io.Reader, filename string) {
-	files, err := filepath.Glob(filepath.Join(appName, AssetsDirectory, ArchivesDirectory, asset) + ".*")
+// GetAsset returns an application asset
+func (a *FileSystem) GetAsset(appName string, asset string) (file io.Reader, filename string) {
+	files, err := filepath.Glob(filepath.Join(appName, assetsDirectory, archivesDirectory, asset) + ".*")
 	if err != nil || len(files) == 0 {
 		log.Errorf("Cannot open file to write : %s", err)
 		return nil, ""
@@ -234,9 +241,10 @@ func (k *FileSystem) GetAsset(appName string, asset string) (file io.Reader, fil
 	return f, filepath.Base(files[0])
 }
 
-func (k *FileSystem) GetAssetsList(appName string) (assets []string) {
+// GetAssetsList returns application asset list
+func (a *FileSystem) GetAssetsList(appName string) (assets []string) {
 	assets = []string{}
-	files, err := ioutil.ReadDir(filepath.Join(appName, AssetsDirectory, SrcDirectory))
+	files, err := ioutil.ReadDir(filepath.Join(appName, assetsDirectory, srcDirectory))
 	if err != nil {
 		log.Error("Could not read applications.")
 		return assets
@@ -250,7 +258,8 @@ func (k *FileSystem) GetAssetsList(appName string) (assets []string) {
 	return assets
 }
 
-func (k *FileSystem) GeneratePlan(appName string) error {
+// GeneratePlan starts generation of plan of an application
+func (a *FileSystem) GeneratePlan(appName string) error {
 	log.Infof("About to start planning application %s", appName)
 	go runPlan(appName)
 	log.Infof("Planning started for application %s", appName)
@@ -268,7 +277,7 @@ func runPlan(appName string) bool {
 	}
 	emptyFile.Close()
 
-	srcDirectoryPath := filepath.Join(AssetsDirectory, SrcDirectory)
+	srcDirectoryPath := filepath.Join(assetsDirectory, srcDirectory)
 	cmd := exec.Command("move2kube", "plan", "-s", srcDirectoryPath)
 	cmd.Dir = appName
 
@@ -329,7 +338,8 @@ func runPlan(appName string) bool {
 	return true
 }
 
-func (k *FileSystem) UpdatePlan(appName string, plan string) error {
+// UpdatePlan updates the plan file for an application
+func (a *FileSystem) UpdatePlan(appName string, plan string) error {
 	log.Infof("Updating plan of %s", appName)
 	planfilepath := filepath.Join(appName, m2kplanfilename)
 	os.Remove(planfilepath)
@@ -342,7 +352,8 @@ func (k *FileSystem) UpdatePlan(appName string, plan string) error {
 	return nil
 }
 
-func (k *FileSystem) GetPlan(appName string) (file io.Reader, filename string) {
+// GetPlan returns the plan for an application
+func (a *FileSystem) GetPlan(appName string) (file io.Reader, filename string) {
 	log.Infof("Fetching plan of %s", appName)
 	planfilepath := filepath.Join(appName, m2kplanfilename)
 	f, err := os.Open(planfilepath)
@@ -353,7 +364,8 @@ func (k *FileSystem) GetPlan(appName string) (file io.Reader, filename string) {
 	return f, m2kplanfilename
 }
 
-func (k *FileSystem) DeletePlan(appName string) error {
+// DeletePlan deletes plan for an application
+func (a *FileSystem) DeletePlan(appName string) error {
 	planfilepath := filepath.Join(appName, m2kplanfilename)
 	if err := os.Remove(planfilepath); err != nil {
 		log.Errorf("Cannot delete file: %s", err)
@@ -362,10 +374,11 @@ func (k *FileSystem) DeletePlan(appName string) error {
 	return nil
 }
 
-func (k *FileSystem) Translate(appName, artifactName, plan string) error {
+// Translate starts the translation phase for an application
+func (a *FileSystem) Translate(appName, artifactName, plan string) error {
 	log.Infof("About to start translation of application %s", appName)
 
-	artifactpath := filepath.Join(appName, ArtifactsDirectoryName, artifactName)
+	artifactpath := filepath.Join(appName, artifactsDirectoryName, artifactName)
 	err := os.MkdirAll(artifactpath, 0777)
 	if err != nil {
 		log.Error(err)
@@ -381,12 +394,12 @@ func (k *FileSystem) Translate(appName, artifactName, plan string) error {
 		}
 	}
 
-	artifactfilepath := filepath.Join(appName, ArtifactsDirectoryName, artifactName, appName+".zip")
+	artifactfilepath := filepath.Join(appName, artifactsDirectoryName, artifactName, appName+".zip")
 	if _, err := os.Stat(artifactfilepath); !os.IsNotExist(err) {
 		return nil
 	}
 
-	m2kqaservermetadatapath := filepath.Join(appName, ArtifactsDirectoryName, artifactName, m2kQAServerMetadataFile)
+	m2kqaservermetadatapath := filepath.Join(appName, artifactsDirectoryName, artifactName, m2kQAServerMetadataFile)
 	if _, err := os.Stat(m2kqaservermetadatapath); !os.IsNotExist(err) {
 		metadatayaml := types.AppMetadata{}
 		err = ReadYaml(m2kqaservermetadatapath, &metadatayaml)
@@ -494,9 +507,10 @@ func runTranslate(appName string, artifactpath string, translatech chan string) 
 	return true
 }
 
-func (k *FileSystem) GetTargetArtifacts(appName string, artifact string) (file io.Reader, filename string) {
-	artifactpath := filepath.Join(appName, ArtifactsDirectoryName, artifact, appName+".zip")
-	m2kqaservermetadatapath := filepath.Join(appName, ArtifactsDirectoryName, artifact, m2kQAServerMetadataFile)
+// GetTargetArtifacts returns the target artifacts for an application
+func (a *FileSystem) GetTargetArtifacts(appName string, artifact string) (file io.Reader, filename string) {
+	artifactpath := filepath.Join(appName, artifactsDirectoryName, artifact, appName+".zip")
+	m2kqaservermetadatapath := filepath.Join(appName, artifactsDirectoryName, artifact, m2kQAServerMetadataFile)
 	f, err := os.Open(artifactpath)
 	if err != nil {
 		log.Error(err)
@@ -508,9 +522,10 @@ func (k *FileSystem) GetTargetArtifacts(appName string, artifact string) (file i
 	return f, filepath.Base(artifactpath)
 }
 
-func (k *FileSystem) GetTargetArtifactsList(appName string) (artifacts []string) {
+// GetTargetArtifactsList returns the list of target artifacts for an application
+func (a *FileSystem) GetTargetArtifactsList(appName string) (artifacts []string) {
 	artifacts = []string{}
-	files, err := ioutil.ReadDir(filepath.Join(appName, ArtifactsDirectoryName))
+	files, err := ioutil.ReadDir(filepath.Join(appName, artifactsDirectoryName))
 	if err != nil {
 		log.Error("Could not read applications.")
 		return artifacts
@@ -524,8 +539,9 @@ func (k *FileSystem) GetTargetArtifactsList(appName string) (artifacts []string)
 	return artifacts
 }
 
-func (k *FileSystem) DeleteTargetArtifacts(appName string, artifacts string) error {
-	err := os.RemoveAll(filepath.Join(appName, ArtifactsDirectoryName, artifacts))
+// DeleteTargetArtifacts deletes target artifacts of an application
+func (a *FileSystem) DeleteTargetArtifacts(appName string, artifacts string) error {
+	err := os.RemoveAll(filepath.Join(appName, artifactsDirectoryName, artifacts))
 	if err != nil {
 		log.Errorf("Cannot delete file: %s", err)
 		return err
@@ -533,9 +549,10 @@ func (k *FileSystem) DeleteTargetArtifacts(appName string, artifacts string) err
 	return nil
 }
 
-func (k *FileSystem) GetQuestion(appName string, artifact string) (problem string, err error) {
+// GetQuestion returns the current question for application which is in translation phase
+func (a *FileSystem) GetQuestion(appName string, artifact string) (problem string, err error) {
 	log.Infof("Getting question %s for %s", appName, artifact)
-	artifactpath := filepath.Join(appName, ArtifactsDirectoryName, artifact)
+	artifactpath := filepath.Join(appName, artifactsDirectoryName, artifact)
 	m2kqaservermetadatapath := filepath.Join(artifactpath, m2kQAServerMetadataFile)
 	metadatayaml := types.AppMetadata{}
 	err = ReadYaml(m2kqaservermetadatapath, &metadatayaml)
@@ -580,8 +597,9 @@ func (k *FileSystem) GetQuestion(appName string, artifact string) (problem strin
 	return string(body), nil
 }
 
-func (k *FileSystem) PostSolution(appName string, artifact string, solution string) error {
-	artifactpath := filepath.Join(appName, ArtifactsDirectoryName, artifact)
+// PostSolution posts the solution for the current question
+func (a *FileSystem) PostSolution(appName string, artifact string, solution string) error {
+	artifactpath := filepath.Join(appName, artifactsDirectoryName, artifact)
 	m2kqaservermetadatapath := filepath.Join(artifactpath, m2kQAServerMetadataFile)
 	metadatayaml := types.AppMetadata{}
 	err := ReadYaml(m2kqaservermetadatapath, &metadatayaml)
@@ -622,6 +640,7 @@ func (k *FileSystem) PostSolution(appName string, artifact string, solution stri
 
 }
 
+// NewFileSystem returns a new IApplication object which manages an application in a filesystem
 func NewFileSystem() IApplication {
 	fileSystem := &FileSystem{}
 	applications := fileSystem.GetApplications()
