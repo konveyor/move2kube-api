@@ -8,4 +8,4 @@ linters:
 
 linters-settings:
   golint:
-    min-confidence: 0.8
+    min-confidence: 0.85
