@@ -182,13 +182,17 @@ func generateTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	plan := r.FormValue("plan")
 
+	helmTargetArtifactTypeValue := "Helm"
+	yamlsTargetArtifactTypeValue := "Yamls"
+	knativeTargetArtifactTypeValue := "Knative"
+
 	re := regexp.MustCompile(`artifacttype:\\s.*`)
 	artifactTypematch := re.FindString(plan)
-	artifactType := "helm"
-	if strings.HasSuffix(artifactTypematch, "knative") {
-		artifactType = "knative"
-	} else if strings.HasSuffix(artifactTypematch, "k8") {
-		artifactType = "k8"
+	artifactType := yamlsTargetArtifactTypeValue
+	if strings.HasSuffix(artifactTypematch, knativeTargetArtifactTypeValue) {
+		artifactType = knativeTargetArtifactTypeValue
+	} else if strings.HasSuffix(artifactTypematch, helmTargetArtifactTypeValue) {
+		artifactType = helmTargetArtifactTypeValue
 	}
 	t := time.Now()
 	artifactName := name + "_" + artifactType + "_" + strconv.FormatInt(t.Unix(), 10)
