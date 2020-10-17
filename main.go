@@ -24,7 +24,6 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/konveyor/move2kube-api/internal/application"
@@ -182,18 +181,11 @@ func generateTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	plan := r.FormValue("plan")
 
-	helmTargetArtifactTypeValue := "Helm"
-	yamlsTargetArtifactTypeValue := "Yamls"
-	knativeTargetArtifactTypeValue := "Knative"
-
 	re := regexp.MustCompile(`artifacttype:\\s.*`)
 	artifactTypematch := re.FindString(plan)
-	artifactType := yamlsTargetArtifactTypeValue
-	if strings.HasSuffix(artifactTypematch, knativeTargetArtifactTypeValue) {
-		artifactType = knativeTargetArtifactTypeValue
-	} else if strings.HasSuffix(artifactTypematch, helmTargetArtifactTypeValue) {
-		artifactType = helmTargetArtifactTypeValue
-	}
+	match := []rune(artifactTypematch)
+	artifactType := string(match[16:len(match)])
+
 	t := time.Now()
 	artifactName := name + "_" + artifactType + "_" + strconv.FormatInt(t.Unix(), 10)
 	log.Infof("Artifact Name:%s", artifactName)
