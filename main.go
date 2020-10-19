@@ -182,15 +182,14 @@ func generateTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	plan := r.FormValue("plan")
 
-	re := regexp.MustCompile(`artifactType:\s.*`)
-	artifactTypematch := re.FindString(plan)
+	re := regexp.MustCompile(`artifactType:\s*(.+)`)
+	artifactTypematch := re.FindStringSubmatch(plan)
 	var artifactType string
-	if artifactTypematch == "" {
+	if len(artifactTypematch) == 0 {
 		artifactType = ""
 	} else {
-		match := []rune(artifactTypematch)
-		name := string(match[len("artifactType:"):len(match)])
-		artifactType = strings.Replace(name, " ", "", -1)
+
+		artifactType = strings.ReplaceAll(artifactTypematch[1], " ", "")
 	}
 
 	t := time.Now()
