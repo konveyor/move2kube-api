@@ -12,15 +12,17 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
+# This is needed for the base image name
 ARG VERSION=latest
+
 # Build image
 FROM registry.access.redhat.com/ubi8/ubi:latest AS build_base
-
+# This is needed for make build
+ARG VERSION=latest
 # Get Dependencies
 WORKDIR /temp
 RUN curl -o go.tar.gz https://dl.google.com/go/go1.15.linux-amd64.tar.gz
 RUN tar -xzf go.tar.gz && mv go /usr/local/
-
 # Get go
 ENV GOPATH=/go
 WORKDIR $GOPATH
