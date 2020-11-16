@@ -385,7 +385,7 @@ func (a *FileSystem) Translate(appName, artifactName, plan string) error {
 		return err
 	}
 	if plan != "" {
-		plan = strings.Replace(plan, "rootdir: assets/src/", "rootdir: ../../assets/src/", 1)
+		plan = strings.Replace(plan, "rootDir: assets/src/", "rootDir: ../../assets/src/", 1)
 		planfilepath := filepath.Join(artifactpath, m2kplanfilename)
 		err := ioutil.WriteFile(planfilepath, []byte(plan), 0777)
 		if err != nil {
