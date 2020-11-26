@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.com/konveyor/move2kube-api.svg?branch=master)](https://travis-ci.com/konveyor/move2kube-api)
+[![Build](https://github.com/konveyor/move2kube-api/workflows/Build/badge.svg "Github Actions")](https://github.com/konveyor/move2kube-api/actions?query=workflow%3ABuild)
 [![Docker Repository on Quay](https://quay.io/repository/konveyor/move2kube-api/status "Docker Repository on Quay")](https://quay.io/repository/konveyor/move2kube-api)
 [![License](https://img.shields.io/:license-apache-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
 [![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat)](https://github.com/konveyor/move2kube-api/pulls)
