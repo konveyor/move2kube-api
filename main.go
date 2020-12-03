@@ -22,7 +22,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"regexp"
 	"strconv"
 	"time"
 
@@ -181,15 +180,8 @@ func generateTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	plan := r.FormValue("plan")
 
-	re := regexp.MustCompile(`artifactType:\s*([^\s]+)`)
-	artifactTypematch := re.FindStringSubmatch(plan)
-	artifactType := ""
-	if len(artifactTypematch) > 1 {
-		artifactType = artifactTypematch[1]
-	}
-
 	t := time.Now()
-	artifactName := name + "_" + artifactType + "_" + strconv.FormatInt(t.Unix(), 10)
+	artifactName := name + "_" + strconv.FormatInt(t.Unix(), 10)
 	log.Infof("Artifact Name:%s", artifactName)
 
 	err := m2kapp.Translate(name, artifactName, plan)
