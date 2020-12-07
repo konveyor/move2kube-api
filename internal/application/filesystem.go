@@ -112,7 +112,7 @@ func (a *FileSystem) GetApplication(name string) (Application, error) {
 		status = append(status, ApplicationStatusPlanning)
 	}
 	app.Status = status
-	log.Infof("Application : %+v", app)
+	log.Debugf("Application : %+v", app)
 	return app, nil
 }
 
@@ -121,7 +121,7 @@ func (a *FileSystem) GetApplications() []Application {
 	applications := []Application{}
 	files, err := ioutil.ReadDir("./")
 	if err != nil {
-		log.Error("Could not read applications.")
+		log.Debugf("Could not read applications.")
 		return applications
 	}
 
@@ -246,7 +246,7 @@ func (a *FileSystem) GetAssetsList(appName string) (assets []string) {
 	assets = []string{}
 	files, err := ioutil.ReadDir(filepath.Join(appName, assetsDirectory, srcDirectory))
 	if err != nil {
-		log.Error("Could not read applications.")
+		log.Debug("Could not read applications.")
 		return assets
 	}
 
@@ -354,11 +354,11 @@ func (a *FileSystem) UpdatePlan(appName string, plan string) error {
 
 // GetPlan returns the plan for an application
 func (a *FileSystem) GetPlan(appName string) (file io.Reader, filename string) {
-	log.Infof("Fetching plan of %s", appName)
+	log.Debugf("Fetching plan of %s", appName)
 	planfilepath := filepath.Join(appName, m2kplanfilename)
 	f, err := os.Open(planfilepath)
 	if err != nil {
-		log.Errorf("Cannot get file: %s", err)
+		log.Debugf("Cannot get file: %s", err)
 		return nil, ""
 	}
 	return f, m2kplanfilename
@@ -371,6 +371,7 @@ func (a *FileSystem) DeletePlan(appName string) error {
 		log.Errorf("Cannot delete file: %s", err)
 		return err
 	}
+	log.Infof("Plan deleted successfully")
 	return nil
 }
 
@@ -527,7 +528,7 @@ func (a *FileSystem) GetTargetArtifactsList(appName string) (artifacts []string)
 	artifacts = []string{}
 	files, err := ioutil.ReadDir(filepath.Join(appName, artifactsDirectoryName))
 	if err != nil {
-		log.Error("Could not read applications.")
+		log.Debug("Could not read applications.")
 		return artifacts
 	}
 
@@ -671,10 +672,10 @@ func doesPathExist(path string) (bool, error) {
 	if strings.HasSuffix(path, ".*") {
 		files, err := filepath.Glob(path)
 		if err != nil {
-			log.Errorf("Cannot get files : %s", err)
+			log.Debugf("Cannot get files : %s", err)
 			return false, nil
 		}
-		log.Infof("Got files : %s, %s", err, files)
+		log.Debugf("Got files : %s", files)
 		if len(files) > 0 {
 			return true, nil
 		}

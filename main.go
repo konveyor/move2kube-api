@@ -83,7 +83,7 @@ func getApplication(w http.ResponseWriter, r *http.Request) {
 		log.Errorf("Error while fetching application : %s : %s", name, err)
 		w.WriteHeader(http.StatusNotFound)
 	} else {
-		log.Infof("Fetched application : %s", name)
+		log.Debugf("Fetched application : %s", name)
 		w.WriteHeader(http.StatusOK)
 		err = json.NewEncoder(w).Encode(app)
 		if err != nil {
@@ -99,7 +99,7 @@ func deleteApplication(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	} else {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "Application %v has been deleted successfully", name)
+		log.Infof("Application %s has been deleted successfully", name)
 	}
 }
 
@@ -282,7 +282,7 @@ func getPlan(w http.ResponseWriter, r *http.Request) {
 
 	plan, filename := m2kapp.GetPlan(name)
 	if filename == "" {
-		log.Errorf("Plan not found. Start Planning.")
+		log.Debugf("Plan not found. Start Planning.")
 		w.WriteHeader(http.StatusNotFound)
 		return
 	} else if filename == "ongoing" {
@@ -303,7 +303,7 @@ func deletePlan(w http.ResponseWriter, r *http.Request) {
 
 	err := m2kapp.DeletePlan(name)
 	if err != nil {
-		log.Errorf("Plan not found. Start Planning.")
+		log.Infof("Plan not found. Start Planning.")
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
