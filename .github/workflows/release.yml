@@ -45,15 +45,6 @@ jobs:
         run: |
           npm install github-release-notes@v0.17.3 -g
           gren release --draft --prerelease --tags ${{ steps.only_tag.outputs.tag }} --username=${{ github.repository_owner }} --repo=${{ github.event.repository.name }} --token=${{ secrets.GITHUB_TOKEN }}
-      - run: make dist
-      - name: upload release assets
-        uses: HarikrishnanBalagopal/upload-release-action@v3
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          tag: ${{ github.ref }}
-          file: _dist/output/*
-          file_glob: true
-          overwrite: true
       - name: slack notification
         uses: rtCamp/action-slack-notify@v2
         env:
