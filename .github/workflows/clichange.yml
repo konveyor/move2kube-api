@@ -1,4 +1,4 @@
-name: CliChangeBuild
+name: Cli Change Build
 
 on:
   repository_dispatch:
@@ -6,37 +6,36 @@ on:
   workflow_dispatch:
 
 jobs:
-
-  image-build:
-    name: Image Build
+  image_build:
+    name: Image build
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - name: Pull latest image to reuse layers
-      run: |
-        docker pull quay.io/konveyor/move2kube-api:latest || true
-        docker pull quay.io/konveyor/move2kube-api-builder:latest || true
-    - name: Build and Push image to quay
-      run: |
-        echo "${{ secrets.QUAY_BOT_PASSWORD }}" | docker login --username "${{ secrets.QUAY_BOT_USERNAME }}" --password-stdin quay.io
-        make cbuild
-        docker push quay.io/konveyor/move2kube-api:latest
-        docker push quay.io/konveyor/move2kube-api-builder:latest
-    - name: Success Slack Notification
-      uses: rtCamp/action-slack-notify@v2
-      env:
-        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-        SLACK_ICON: https://github.com/actions.png?size=48
-        SLACK_MESSAGE: 'Built and Pushed quay.io/konveyor/move2kube-api:latest'
-        SLACK_TITLE: Success
-        SLACK_USERNAME: GitHubActions
-    - name: Failure Slack Notification
-      uses: rtCamp/action-slack-notify@v2
-      if: failure()
-      env:
-        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-        SLACK_COLOR: '#BD3232'
-        SLACK_ICON: https://github.com/actions.png?size=48
-        SLACK_MESSAGE: 'Failed to build and push image quay.io/konveyor/move2kube-api:latest'
-        SLACK_TITLE: Failed
-        SLACK_USERNAME: GitHubActions
+      - uses: actions/checkout@v2
+      - name: Pull latest image to reuse layers
+        run: |
+          docker pull quay.io/konveyor/move2kube-api:latest || true
+          docker pull quay.io/konveyor/move2kube-api-builder:latest || true
+      - name: build and push images to quay
+        run: |
+          echo "${{ secrets.QUAY_BOT_PASSWORD }}" | docker login --username "${{ secrets.QUAY_BOT_USERNAME }}" --password-stdin quay.io
+          make cbuild
+          docker push quay.io/konveyor/move2kube-api:latest
+          docker push quay.io/konveyor/move2kube-api-builder:latest
+      - name: success slack notification
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_ICON: https://github.com/actions.png?size=48
+          SLACK_MESSAGE: "Built and pushed quay.io/konveyor/move2kube-api:latest"
+          SLACK_TITLE: Success
+          SLACK_USERNAME: GitHubActions
+      - if: failure()
+        name: failure slack notification
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_COLOR: "#BD3232"
+          SLACK_ICON: https://github.com/actions.png?size=48
+          SLACK_MESSAGE: "Failed to build and push image quay.io/konveyor/move2kube-api:latest"
+          SLACK_TITLE: Failed
+          SLACK_USERNAME: GitHubActions
