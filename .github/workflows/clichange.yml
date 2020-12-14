@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Pull latest image to reuse layers
+      - name: pull latest image to reuse layers
         run: |
           docker pull quay.io/konveyor/move2kube-api:latest || true
           docker pull quay.io/konveyor/move2kube-api-builder:latest || true
