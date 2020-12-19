@@ -2,17 +2,21 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches:
+      - "main"
+      - "release-*"
 
 jobs:
   build_and_test:
     name: Build and test
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v2
+      - id: info
+        uses: konveyor/get-env-info@v1
       - uses: actions/setup-go@v2
         with:
-          go-version: ^1.15
-      - uses: actions/checkout@v2
+          go-version: ${{ steps.info.outputs.go_version }}
       - run: make ci
       - run: make test-coverage
       - name: upload coverage
@@ -23,7 +27,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
           SLACK_COLOR: "#BD3232"
           SLACK_ICON: https://github.com/actions.png?size=48
-          SLACK_MESSAGE: "Build failed in move2kube-api main"
+          SLACK_MESSAGE: "Build and test failed for move2kube-api ${{ github.ref }}"
           SLACK_TITLE: Failed
           SLACK_USERNAME: GitHubActions
 
@@ -33,21 +37,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - id: info
+        uses: konveyor/get-env-info@v1
+      - id: image_tag
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          if [ "$BRANCH" == 'main' ] ; then
+            echo "::set-output name=tag::latest"
+          else
+            echo "::set-output name=tag::$BRANCH"
+          fi
       - name: Pull latest image to reuse layers
         run: |
           docker pull quay.io/konveyor/move2kube-api:latest || true
           docker pull quay.io/konveyor/move2kube-api-builder:latest || true
-      - name: Build and Push image to quay
-        run: |
-          echo "${{ secrets.QUAY_BOT_PASSWORD }}" | docker login --username "${{ secrets.QUAY_BOT_USERNAME }}" --password-stdin quay.io
-          make cbuild
-          make cpush
+      - run: echo "${{ secrets.QUAY_BOT_PASSWORD }}" | docker login --username "${{ secrets.QUAY_BOT_USERNAME }}" --password-stdin quay.io
+      - name: build image
+        run: VERSION='${{ steps.image_tag.outputs.tag }}' GO_VERSION='${{ steps.info.outputs.go_version }}' make cbuild
+      - name: push image to quay
+        run: VERSION='${{ steps.image_tag.outputs.tag }}' make cpush
       - name: success slack notification
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
           SLACK_ICON: https://github.com/actions.png?size=48
-          SLACK_MESSAGE: "Built and pushed quay.io/konveyor/move2kube-api:latest"
+          SLACK_MESSAGE: "Built and pushed quay.io/konveyor/move2kube-api:${{ steps.image_tag.outputs.tag }}"
           SLACK_TITLE: Success
           SLACK_USERNAME: GitHubActions
       - if: failure()
@@ -57,6 +71,6 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
           SLACK_COLOR: "#BD3232"
           SLACK_ICON: https://github.com/actions.png?size=48
-          SLACK_MESSAGE: "Failed to build and push image quay.io/konveyor/move2kube-api:latest"
+          SLACK_MESSAGE: "Failed to build and push image quay.io/konveyor/move2kube-api:${{ steps.image_tag.outputs.tag }}"
           SLACK_TITLE: Failed
           SLACK_USERNAME: GitHubActions
