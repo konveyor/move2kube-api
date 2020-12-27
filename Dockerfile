@@ -17,25 +17,26 @@ ARG VERSION=latest
 
 # Build image
 FROM registry.access.redhat.com/ubi8/ubi:latest AS build_base
-# This is needed for make build
-ARG VERSION=latest
-# Get Dependencies
 WORKDIR /temp
-RUN curl -o go.tar.gz https://dl.google.com/go/go1.15.linux-amd64.tar.gz
-RUN tar -xzf go.tar.gz && mv go /usr/local/
-# Get go
+RUN dnf install -y git make
 ENV GOPATH=/go
-WORKDIR $GOPATH
-ENV PATH=$GOPATH/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 RUN mkdir -p $GOPATH/src $GOPATH/bin && chmod -R 777 $GOPATH
-# Download source and build
-RUN yum install git make -y 
+ENV PATH=$GOPATH/bin:/usr/local/go/bin:$PATH
+
+# Download Go.
+ARG GO_VERSION=1.15
+RUN curl -o go.tgz "https://dl.google.com/go/go${GO_VERSION}.linux-amd64.tar.gz"
+RUN tar -xzf go.tgz && mv go /usr/local/
+
+# Copy only go.mod, go.sum and download packages to allow better caching.
 WORKDIR $GOPATH/src/move2kube-api
 COPY go.mod .
 COPY go.sum .
 RUN go mod download
-COPY . .
+
 # Build
+ARG VERSION=latest
+COPY . .
 RUN make build 
 
 # Run image
