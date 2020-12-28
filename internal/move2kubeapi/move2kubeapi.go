@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package move2kubeapi
 
 import (
 	"encoding/json"
@@ -27,6 +27,7 @@ import (
 
 	"github.com/konveyor/move2kube-api/internal/application"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cast"
 
 	"github.com/gorilla/mux"
 )
@@ -359,7 +360,8 @@ func download(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func main() {
+// Serve serves the api server
+func Serve(port int) {
 	router := mux.NewRouter().StrictSlash(true)
 	//router.Handle("/", handlers.LoggingHandler(os.Stdout, http.HandlerFunc(swagger)))
 	router.HandleFunc("/", swagger)
@@ -389,5 +391,7 @@ func main() {
 	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifacts}/problems/current", getQuestion).Methods("GET")
 	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifacts}/problems/current/solution", postSolution).Methods("POST")
 
-	log.Fatal(http.ListenAndServe(":8080", router))
+	portstr := cast.ToString(port)
+	log.Infof("Starting Move2Kube api server at :%d", port)
+	log.Fatal(http.ListenAndServe(":"+portstr, router))
 }

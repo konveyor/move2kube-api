@@ -18,6 +18,7 @@ DISTDIR		:= $(CURDIR)/_dist
 TARGETS     := darwin/amd64 linux/amd64
 REGISTRYNS  := quay.io/konveyor
 
+GO_VERSION   ?= 1.15
 GOPATH        = $(shell go env GOPATH)
 GOX           = $(GOPATH)/bin/gox
 GOLINT        = $(GOPATH)/bin/golint 
@@ -70,43 +71,43 @@ help: ## This help.
 build: get $(BINDIR)/$(BINNAME) ## Build go code
 
 $(BINDIR)/$(BINNAME): $(SRC)
-	@go build -ldflags '$(LDFLAGS)' -o $(BINDIR)/$(BINNAME) 
-	@cp $(BINDIR)/$(BINNAME) $(GOPATH)/bin/
+	go build -ldflags '$(LDFLAGS)' -o $(BINDIR)/$(BINNAME) ./cmd/move2kubeapi
+	cp $(BINDIR)/$(BINNAME) $(GOPATH)/bin/
 
 .PHONY: get
 get: go.mod
-	@go mod download
+	go mod download
 
 .PHONY: generate
 generate: 
-	@go generate ${PKG}
+	go generate ${PKG}
 
 .PHONY: deps
 deps: 
-	@source scripts/installdeps.sh
+	source scripts/installdeps.sh
 
 # -- Test --
 
 .PHONY: test
 test: ## Run tests
-	@go test -run . $(PKG) -race
+	go test -run . $(PKG) -race
 
 ${GOTEST}:
 	${GOGET} github.com/rakyll/gotest
 
 .PHONY: test-verbose
 test-verbose: ${GOTEST}
-	@gotest -run . $(PKG) -race -v
+	gotest -run . $(PKG) -race -v
 
 ${GOLANGCOVER}:
 	${GOGET} github.com/mattn/goveralls@v0.0.6
 
 .PHONY: test-coverage
 test-coverage: ${GOLANGCOVER} ## Run tests with coverage
-	@go test -run . $(PKG) -coverprofile=coverage.txt -covermode=atomic
+	go test -run . $(PKG) -coverprofile=coverage.txt -covermode=atomic
 
 ${GOLANGCILINT}:
-	@curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOPATH)/bin v1.31.0
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOPATH)/bin v1.31.0
 
 ${GOLINT}:
 	${GOGET} golang.org/x/lint/golint
@@ -129,13 +130,13 @@ $(GOX):
 
 .PHONY: build-cross
 build-cross: $(GOX) clean
-	CGO_ENABLED=0 $(GOX) -parallel=3 -output="$(DISTDIR)/{{.OS}}-{{.Arch}}/$(BINNAME)" -osarch='$(TARGETS)' -ldflags '$(LDFLAGS)' 
+	CGO_ENABLED=0 $(GOX) -parallel=3 -output="$(DISTDIR)/{{.OS}}-{{.Arch}}/$(BINNAME)" -osarch='$(TARGETS)' -ldflags '$(LDFLAGS)' ./cmd/move2kubeapi
 
 .PHONY: dist
 dist: clean build-cross ## Build Distribution
-	@mkdir -p $(DISTDIR)/files
-	@cp -r ./LICENSE $(DISTDIR)/files/
-	@cd $(DISTDIR) && \
+	mkdir -p $(DISTDIR)/files
+	cp -r ./LICENSE $(DISTDIR)/files/
+	cd $(DISTDIR) && \
 	 find * -maxdepth 1 -name "*-*" -type d \
 	  -exec cp -r $(DISTDIR)/files/* {} \; \
 	  -exec tar -zcf ${BINNAME}-${VERSION}-{}.tar.gz {} \; \
@@ -145,15 +146,15 @@ dist: clean build-cross ## Build Distribution
 
 .PHONY: clean
 clean:
-	@rm -rf $(BINDIR) $(DISTDIR)
-	@go clean -cache
+	rm -rf $(BINDIR) $(DISTDIR)
+	go clean -cache
 
 .PHONY: info
 info: ## Get version info
-	 @echo "Version:           ${VERSION}"
-	 @echo "Git Tag:           ${GIT_TAG}"
-	 @echo "Git Commit:        ${GIT_COMMIT}"
-	 @echo "Git Tree State:    ${GIT_DIRTY}"
+	@echo "Version:           ${VERSION}"
+	@echo "Git Tag:           ${GIT_TAG}"
+	@echo "Git Commit:        ${GIT_COMMIT}"
+	@echo "Git Tree State:    ${GIT_DIRTY}"
 
 # -- Docker --
 
@@ -172,4 +173,4 @@ cpush: ## Push docker image
 
 .PHONY: crun
 crun: ## Run docker image
-	@docker run -p 8080:8080 -v /var/run/docker.sock:/var/run/docker.sock -v ${PWD}/:/wksps ${REGISTRYNS}/${BINNAME}:${VERSION}
+	docker run -p 8080:8080 -v /var/run/docker.sock:/var/run/docker.sock -v ${PWD}/:/workspace ${REGISTRYNS}/${BINNAME}:${VERSION}

@@ -23,7 +23,7 @@ import (
 const (
 	// appName stores the application name
 	appName = "move2kube"
-	// appNameShirt stores the application shortname
+	// appNameShort stores the application shortname
 	appNameShort = "m2k"
 )
 
