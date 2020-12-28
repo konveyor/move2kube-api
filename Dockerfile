@@ -44,6 +44,6 @@ FROM quay.io/konveyor/move2kube:${VERSION}
 # Install move2kube-api
 COPY --from=build_base /go/bin/move2kube-api /bin/move2kube-api
 # Start app
-WORKDIR /wksps
+WORKDIR /workspace
 EXPOSE 8080
-CMD ["move2kube-api"]
+CMD move2kube-api -p 8080
