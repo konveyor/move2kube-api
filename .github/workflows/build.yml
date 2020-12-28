@@ -75,3 +75,16 @@ jobs:
           SLACK_MESSAGE: "Failed to build and push image quay.io/konveyor/move2kube-api:${{ steps.image_tag.outputs.tag }}"
           SLACK_TITLE: Failed
           SLACK_USERNAME: GitHubActions
+      - name: trigger move2kube-ui build
+        uses: actions/github-script@v3
+        with:
+          github-token: ${{ secrets.MOVE2KUBE_PATOKEN }}
+          script: |
+            const other_repo = 'move2kube-ui';
+            const build_workflow = 'build.yml';
+            await github.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: other_repo,
+              workflow_id: build_workflow,
+              ref: context.ref,
+            });

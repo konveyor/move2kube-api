@@ -156,8 +156,30 @@ jobs:
           SLACK_TITLE: Failed
           SLACK_USERNAME: GitHubActions
 
+  trigger_other_repos:
+    needs: [image_build]
+    name: Trigger release in other repos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v3
+        with:
+          github-token: ${{ secrets.MOVE2KUBE_PATOKEN }}
+          script: |
+            const create_release_workflow = 'release.yml';
+            const repos = [
+              "move2kube-ui",
+            ];
+            const promises = repos.map(repo => github.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo,
+              workflow_id: create_release_workflow,
+              ref: context.ref,
+              inputs: context.payload.inputs,
+            }));
+            await Promise.all(promises);
+
   update_draft_title:
-    needs: [create_release_draft, image_build]
+    needs: [create_release_draft, trigger_other_repos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v3
