@@ -38,11 +38,11 @@ type IApplication interface {
 	DeleteAsset(appName, asset string) error
 	GetAsset(appName, asset string) (file io.Reader, filename string)
 	GetAssetsList(appName string) (assets []string)
-	Translate(appname, artifactName, plan string) error
+	Translate(appname, artifactName, plan string, debugMode bool) error
 	GetTargetArtifacts(appName, artifact string) (file io.Reader, filename string) // Return "ongoing" as filename if artifacts are in the process of generation
 	GetTargetArtifactsList(appName string) (artifacts []string)
 	DeleteTargetArtifacts(appName string, asset string) error
-	GeneratePlan(appname string) error
+	GeneratePlan(appname string, debugMode bool) error
 	DeletePlan(appname string) error
 	UpdatePlan(appname, plan string) error
 	GetPlan(appName string) (file io.Reader, filename string) // Return "ongoing" as filename if plan is in generation

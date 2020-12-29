@@ -185,7 +185,15 @@ func generateTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 	artifactName := name + "_" + strconv.FormatInt(t.Unix(), 10)
 	log.Infof("Artifact Name:%s", artifactName)
 
-	err := m2kapp.Translate(name, artifactName, plan)
+	keys, ok := r.URL.Query()["debug"]
+	var debugFlag bool
+	if !ok || len(keys[0]) < 1 {
+		log.Info("Query parameter debug : false")
+	} else {
+		debugFlag, _ = strconv.ParseBool(keys[0])
+		log.Infof("Query parameter debug : %t", debugFlag)
+	}
+	err := m2kapp.Translate(name, artifactName, plan, debugFlag)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = io.WriteString(w, "Could not start translation : "+err.Error())
@@ -254,7 +262,15 @@ func deleteTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 func startPlan(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 
-	err := m2kapp.GeneratePlan(name)
+	keys, ok := r.URL.Query()["debug"]
+	var debugFlag bool
+	if !ok || len(keys[0]) < 1 {
+		log.Infof("Query parameter debug : false")
+	} else {
+		debugFlag, _ = strconv.ParseBool(keys[0])
+		log.Infof("Query parameter debug : %t", debugFlag)
+	}
+	err := m2kapp.GeneratePlan(name, debugFlag)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = io.WriteString(w, "Could not start plan : "+err.Error())
