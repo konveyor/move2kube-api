@@ -16,17 +16,21 @@
 ARG VERSION=latest
 
 # Build image
-FROM registry.access.redhat.com/ubi8/ubi:latest AS build_base
+FROM registry.fedoraproject.org/fedora:latest AS build_base
 WORKDIR /temp
-RUN dnf install -y git make
+RUN dnf install -y git make findutils \
+    && dnf clean all \
+    && rm -rf /var/cache/yum
 ENV GOPATH=/go
 RUN mkdir -p $GOPATH/src $GOPATH/bin && chmod -R 777 $GOPATH
 ENV PATH=$GOPATH/bin:/usr/local/go/bin:$PATH
 
 # Download Go.
 ARG GO_VERSION=1.15
-RUN curl -o go.tgz "https://dl.google.com/go/go${GO_VERSION}.linux-amd64.tar.gz"
-RUN tar -xzf go.tgz && mv go /usr/local/
+RUN curl -o go.tgz "https://dl.google.com/go/go${GO_VERSION}.linux-amd64.tar.gz" \
+    && tar -xzf go.tgz \
+    && mv go /usr/local/ \
+    && rm go.tgz
 
 # Copy only go.mod, go.sum and download packages to allow better caching.
 WORKDIR $GOPATH/src/move2kube-api
@@ -37,7 +41,7 @@ RUN go mod download
 # Build
 ARG VERSION=latest
 COPY . .
-RUN make build 
+RUN make build
 
 # Run image
 FROM quay.io/konveyor/move2kube:${VERSION}
