@@ -259,14 +259,14 @@ func (a *FileSystem) GetAssetsList(appName string) (assets []string) {
 }
 
 // GeneratePlan starts generation of plan of an application
-func (a *FileSystem) GeneratePlan(appName string) error {
+func (a *FileSystem) GeneratePlan(appName string, debugMode bool) error {
 	log.Infof("About to start planning application %s", appName)
-	go runPlan(appName)
+	go runPlan(appName, debugMode)
 	log.Infof("Planning started for application %s", appName)
 	return nil
 }
 
-func runPlan(appName string) bool {
+func runPlan(appName string, debugMode bool) bool {
 	log.Infof("Starting plan for %s", appName)
 
 	planid := strconv.Itoa(rand.Intn(100))
@@ -278,7 +278,12 @@ func runPlan(appName string) bool {
 	emptyFile.Close()
 
 	srcDirectoryPath := filepath.Join(assetsDirectory, srcDirectory)
-	cmd := exec.Command("move2kube", "plan", "-s", srcDirectoryPath)
+	var cmd *exec.Cmd
+	if !debugMode {
+		cmd = exec.Command("move2kube", "plan", "-s", srcDirectoryPath)
+	} else {
+		cmd = exec.Command("move2kube", "plan", "--verbose", "-s", srcDirectoryPath)
+	}
 	cmd.Dir = appName
 
 	var wg sync.WaitGroup
@@ -376,7 +381,7 @@ func (a *FileSystem) DeletePlan(appName string) error {
 }
 
 // Translate starts the translation phase for an application
-func (a *FileSystem) Translate(appName, artifactName, plan string) error {
+func (a *FileSystem) Translate(appName, artifactName, plan string, debugMode bool) error {
 	log.Infof("About to start translation of application %s", appName)
 
 	artifactpath := filepath.Join(appName, artifactsDirectoryName, artifactName)
@@ -407,15 +412,22 @@ func (a *FileSystem) Translate(appName, artifactName, plan string) error {
 		if err != nil || metadatayaml.Node != getDNSHostName() {
 			return nil
 		}
+		if !debugMode {
+			if metadatayaml.Debug == "true" {
+				debugMode = true
+			}
+		}
 	}
 
+	log.Infof("Debug level: %t", debugMode)
 	translatech := make(chan string, 10)
-	go runTranslate(appName, artifactpath, translatech)
+	go runTranslate(appName, artifactpath, translatech, debugMode)
 	log.Infof("Waiting for QA engine to start for app %s", appName)
 	port := <-translatech
 	appmetadata := types.AppMetadata{}
 	appmetadata.URL = "http://localhost:" + port
 	appmetadata.Node = getDNSHostName()
+	appmetadata.Debug = strconv.FormatBool(debugMode)
 	if appmetadata.Node == "" {
 		appmetadata.Node = "localhost"
 	}
@@ -432,7 +444,7 @@ func (a *FileSystem) Translate(appName, artifactName, plan string) error {
 	return nil
 }
 
-func runTranslate(appName string, artifactpath string, translatech chan string) bool {
+func runTranslate(appName string, artifactpath string, translatech chan string, debugMode bool) bool {
 	log.Infof("Starting Translate for %s", appName)
 
 	portint, err := freeport.GetFreePort()
@@ -440,7 +452,12 @@ func runTranslate(appName string, artifactpath string, translatech chan string) 
 	if err != nil {
 		log.Warnf("Unable to get a free port : %s", err)
 	}
-	cmd := exec.Command("move2kube", "translate", "-c", "--qadisablecli", "--qaport="+port, "--qacache="+filepath.Join(artifactpath, "m2kqache.yaml"), "--source", "../../assets/src/")
+	var cmd *exec.Cmd
+	if !debugMode {
+		cmd = exec.Command("move2kube", "translate", "-c", "--qadisablecli", "--qaport="+port, "--qacache="+filepath.Join(artifactpath, "m2kqache.yaml"), "--source", "../../assets/src/")
+	} else {
+		cmd = exec.Command("move2kube", "translate", "-c", "--qadisablecli", "--verbose", "--qaport="+port, "--qacache="+filepath.Join(artifactpath, "m2kqache.yaml"), "--source", "../../assets/src/")
+	}
 	cmd.Dir = artifactpath
 
 	var wg sync.WaitGroup
@@ -648,7 +665,7 @@ func NewFileSystem() IApplication {
 	for _, application := range applications {
 		artifacts := fileSystem.GetTargetArtifactsList(application.Name)
 		for _, artifact := range artifacts {
-			err := fileSystem.Translate(application.Name, artifact, "")
+			err := fileSystem.Translate(application.Name, artifact, "", false)
 			if err != nil {
 				log.Errorf("Error while starting translate : %s", err)
 			}
