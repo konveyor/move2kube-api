@@ -188,10 +188,10 @@ func generateTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 	keys, ok := r.URL.Query()["debug"]
 	var debugFlag bool
 	if !ok || len(keys[0]) < 1 {
-		log.Info("Query parameter debug : false")
+		log.Debugf("Query parameter debug : false")
 	} else {
 		debugFlag, _ = strconv.ParseBool(keys[0])
-		log.Infof("Query parameter debug : %t", debugFlag)
+		log.Debugf("Query parameter debug : %t", debugFlag)
 	}
 	err := m2kapp.Translate(name, artifactName, plan, debugFlag)
 	if err != nil {

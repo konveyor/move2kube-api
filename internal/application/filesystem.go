@@ -412,8 +412,14 @@ func (a *FileSystem) Translate(appName, artifactName, plan string, debugMode boo
 		if err != nil || metadatayaml.Node != getDNSHostName() {
 			return nil
 		}
+		if !debugMode {
+			if metadatayaml.Debug == "true" {
+				debugMode = true
+			}
+		}
 	}
 
+	log.Infof("Debug level: %t", debugMode)
 	translatech := make(chan string, 10)
 	go runTranslate(appName, artifactpath, translatech, debugMode)
 	log.Infof("Waiting for QA engine to start for app %s", appName)
@@ -421,6 +427,7 @@ func (a *FileSystem) Translate(appName, artifactName, plan string, debugMode boo
 	appmetadata := types.AppMetadata{}
 	appmetadata.URL = "http://localhost:" + port
 	appmetadata.Node = getDNSHostName()
+	appmetadata.Debug = strconv.FormatBool(debugMode)
 	if appmetadata.Node == "" {
 		appmetadata.Node = "localhost"
 	}
