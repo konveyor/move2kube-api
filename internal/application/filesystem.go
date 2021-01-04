@@ -40,6 +40,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/konveyor/move2kube-api/internal/types"
+	"github.com/otiai10/copy"
 )
 
 const (
@@ -428,7 +429,7 @@ func (a *FileSystem) Translate(appName, artifactName, plan string, debugMode boo
 
 	log.Infof("Debug level: %t", debugMode)
 	translatech := make(chan string, 10)
-	go runTranslate(appName, artifactpath, translatech, debugMode)
+	go runTranslate(appName, artifactpath, artifactName, translatech, debugMode)
 	log.Infof("Waiting for QA engine to start for app %s", appName)
 	port := <-translatech
 	appmetadata := types.AppMetadata{}
@@ -451,7 +452,7 @@ func (a *FileSystem) Translate(appName, artifactName, plan string, debugMode boo
 	return nil
 }
 
-func runTranslate(appName string, artifactpath string, translatech chan string, debugMode bool) bool {
+func runTranslate(appName string, artifactpath string, artifactName string, translatech chan string, debugMode bool) bool {
 	log.Infof("Starting Translate for %s", appName)
 
 	portint, err := freeport.GetFreePort()
@@ -518,9 +519,16 @@ func runTranslate(appName string, artifactpath string, translatech chan string, 
 		close(outch)
 		m2kqaservermetadatapath := filepath.Join(artifactpath, m2kQAServerMetadataFile)
 		os.RemoveAll(m2kqaservermetadatapath)
+		srcDirectoryPath := filepath.Join(appName, assetsDirectory, srcDirectory)
+		artifactSrcDirectoryPath := filepath.Join(appName, artifactsDirectoryName, artifactName, appName, srcDirectory)
+		err := copy.Copy(srcDirectoryPath, artifactSrcDirectoryPath)
+		if err != nil {
+			log.Errorf("Unable to copy source files : %s", err)
+		}
+
 		artifacts := filepath.Join(artifactpath, appName)
 		zip := archiver.NewZip()
-		err := zip.Archive([]string{artifacts}, artifacts+".zip")
+		err = zip.Archive([]string{artifacts}, artifacts+".zip")
 		if err != nil {
 			log.Errorf("Unable to create zip file : %s", err)
 		}
