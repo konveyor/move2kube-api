@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,6 +51,8 @@ const (
 	m2kQAServerMetadataFile = "." + appNameShort + "qa"
 	m2kPlanOngoingFile      = "." + appNameShort + "plan"
 	apiServerPort           = 8080
+	timestampRegex          = `time="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"`
+	m2kString               = "Move2Kube"
 )
 
 // FileSystem implements the IApplication interface and manages the application data in a filesystem
@@ -312,8 +315,10 @@ func runPlan(appName string, debugMode bool) bool {
 	go func() {
 		for scannerStdout.Scan() {
 			text := scannerStdout.Text()
+			var re = regexp.MustCompile(timestampRegex)
+			updatedText := re.ReplaceAllString(text, m2kString)
 			if strings.TrimSpace(text) != "" {
-				outch <- text
+				outch <- updatedText
 			}
 		}
 		wg.Done()
@@ -324,8 +329,10 @@ func runPlan(appName string, debugMode bool) bool {
 	go func() {
 		for scannerStderr.Scan() {
 			text := scannerStderr.Text()
+			var re = regexp.MustCompile(timestampRegex)
+			updatedText := re.ReplaceAllString(text, m2kString)
 			if strings.TrimSpace(text) != "" {
-				outch <- text
+				outch <- updatedText
 			}
 		}
 		wg.Done()
@@ -483,8 +490,10 @@ func runTranslate(appName string, artifactpath string, translatech chan string, 
 	go func() {
 		for scannerStdout.Scan() {
 			text := scannerStdout.Text()
+			var re = regexp.MustCompile(timestampRegex)
+			updatedText := re.ReplaceAllString(text, m2kString)
 			if strings.TrimSpace(text) != "" {
-				outch <- text
+				outch <- updatedText
 			}
 		}
 		wg.Done()
@@ -495,8 +504,10 @@ func runTranslate(appName string, artifactpath string, translatech chan string, 
 	go func() {
 		for scannerStderr.Scan() {
 			text := scannerStderr.Text()
+			var re = regexp.MustCompile(timestampRegex)
+			updatedText := re.ReplaceAllString(text, m2kString)
 			if strings.TrimSpace(text) != "" {
-				outch <- text
+				outch <- updatedText
 			}
 		}
 		wg.Done()
