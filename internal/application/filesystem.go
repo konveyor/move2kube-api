@@ -649,7 +649,9 @@ func (a *FileSystem) PostSolution(appName string, artifact string, solution stri
 			log.Error(err)
 			return err
 		}
-		log.Infof(string(body))
+		if string(body) != "" {
+			log.Infof(string(body))
+		}
 		return nil
 	}
 	urlstr := "http://" + metadatayaml.Node + ":" + strconv.Itoa(apiServerPort) + "/api/v1/applications/" + appName + "/targetartifacts/" + artifact + "/problems/current/solution"
