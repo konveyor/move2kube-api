@@ -40,19 +40,22 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/konveyor/move2kube-api/internal/types"
+	"github.com/otiai10/copy"
 )
 
 const (
-	assetsDirectory         = string(ApplicationStatusAssets)
-	artifactsDirectoryName  = string(ApplicationStatusArtifacts)
-	archivesDirectory       = "archives"
-	srcDirectory            = "src"
-	m2kplanfilename         = appNameShort + ".plan"
-	m2kQAServerMetadataFile = "." + appNameShort + "qa"
-	m2kPlanOngoingFile      = "." + appNameShort + "plan"
-	apiServerPort           = 8080
-	timestampRegex          = `time="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"`
-	m2kString               = "Move2Kube"
+	assetsDirectory          = string(ApplicationStatusAssets)
+	artifactsDirectoryName   = string(ApplicationStatusArtifacts)
+	archivesDirectory        = "archives"
+	srcDirectory             = "src"
+	containersDirectory      = "containers"
+	m2kplanfilename          = appNameShort + ".plan"
+	m2kQAServerMetadataFile  = "." + appNameShort + "qa"
+	m2kPlanOngoingFile       = "." + appNameShort + "plan"
+	apiServerPort            = 8080
+	timestampRegex           = `time="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"`
+	m2kString                = "Move2Kube"
+	newfilesMetadataFileName = "newfiles.txt"
 )
 
 // FileSystem implements the IApplication interface and manages the application data in a filesystem
@@ -428,7 +431,7 @@ func (a *FileSystem) Translate(appName, artifactName, plan string, debugMode boo
 
 	log.Infof("Debug level: %t", debugMode)
 	translatech := make(chan string, 10)
-	go runTranslate(appName, artifactpath, translatech, debugMode)
+	go runTranslate(appName, artifactpath, artifactName, translatech, debugMode)
 	log.Infof("Waiting for QA engine to start for app %s", appName)
 	port := <-translatech
 	appmetadata := types.AppMetadata{}
@@ -451,7 +454,7 @@ func (a *FileSystem) Translate(appName, artifactName, plan string, debugMode boo
 	return nil
 }
 
-func runTranslate(appName string, artifactpath string, translatech chan string, debugMode bool) bool {
+func runTranslate(appName string, artifactpath string, artifactName string, translatech chan string, debugMode bool) bool {
 	log.Infof("Starting Translate for %s", appName)
 
 	portint, err := freeport.GetFreePort()
@@ -518,9 +521,19 @@ func runTranslate(appName string, artifactpath string, translatech chan string, 
 		close(outch)
 		m2kqaservermetadatapath := filepath.Join(artifactpath, m2kQAServerMetadataFile)
 		os.RemoveAll(m2kqaservermetadatapath)
+		srcDirectoryPath := filepath.Join(appName, assetsDirectory, srcDirectory)
+		artifactDirectoryPath := filepath.Join(appName, artifactsDirectoryName, artifactName, appName)
+
+		generateAdditionalFilesInfo(artifactDirectoryPath)
+
+		err = copy.Copy(srcDirectoryPath, filepath.Join(artifactDirectoryPath, containersDirectory))
+		if err != nil {
+			log.Errorf("Unable to copy source files : %s", err)
+		}
+
 		artifacts := filepath.Join(artifactpath, appName)
 		zip := archiver.NewZip()
-		err := zip.Archive([]string{artifacts}, artifacts+".zip")
+		err = zip.Archive([]string{artifacts}, artifacts+".zip")
 		if err != nil {
 			log.Errorf("Unable to create zip file : %s", err)
 		}
@@ -534,6 +547,89 @@ func runTranslate(appName string, artifactpath string, translatech chan string, 
 		log.Info(t)
 	}
 	return true
+}
+
+// generateAdditionalFilesInfo saves the info about the new files in the containers directory
+func generateAdditionalFilesInfo(artifactDirectoryPath string) {
+	artifactSrcDirectoryPath := filepath.Join(artifactDirectoryPath, containersDirectory)
+	filename := filepath.Join(artifactDirectoryPath, newfilesMetadataFileName)
+	f, err := os.Create(filename)
+	if err != nil {
+		log.Errorf("Unable to create file to store the tree: %s", err)
+	}
+	defer f.Close()
+	w := bufio.NewWriter(f)
+
+	numFiles := 0
+	numDir := 0
+	err = generateTree(artifactSrcDirectoryPath, "", w, &numFiles, &numDir)
+	if err != nil {
+		log.Errorf("Tree %s: %v\n", artifactSrcDirectoryPath, err)
+	}
+
+	fmt.Fprintf(w, "%d directories, %d files\n", numDir, numFiles)
+	if err != nil {
+		log.Errorf("Could not write to file %v", err)
+	}
+	w.Flush()
+}
+
+// generateTree is basic implementation of the Linux tree command and saves the output in a file
+func generateTree(root, indent string, w io.Writer, numFiles, numDir *int) error {
+	fileInfo, err := os.Stat(root)
+	if err != nil {
+		log.Errorf("Path error %s: %v", root, err)
+		return err
+	}
+
+	fmt.Fprintf(w, "%s\n", fileInfo.Name())
+	if err != nil {
+		log.Errorf("Could not write to file %v", err)
+	}
+
+	if !fileInfo.IsDir() {
+		return nil
+	}
+
+	filesInfo, err := ioutil.ReadDir(root)
+	if err != nil {
+		log.Errorf("Could not read the dir %s: %v", root, err)
+		return err
+	}
+
+	var names []string
+	for _, fileInfo := range filesInfo {
+		if fileInfo.Name()[0] != '.' {
+			names = append(names, fileInfo.Name())
+			if !fileInfo.IsDir() {
+				*numFiles = *numFiles + 1
+			} else {
+				*numDir = *numDir + 1
+			}
+		}
+	}
+
+	for i, name := range names {
+		add := "│  "
+		if i == len(names)-1 {
+			add = "   "
+			fmt.Fprintf(w, "%s", indent+"└──")
+			if err != nil {
+				log.Errorf("Could not write to file %v", err)
+			}
+		} else {
+			fmt.Fprintf(w, "%s", indent+"├──")
+			if err != nil {
+				log.Errorf("Could not write to file %v", err)
+			}
+		}
+
+		if err := generateTree(filepath.Join(root, name), indent+add, w, numFiles, numDir); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // GetTargetArtifacts returns the target artifacts for an application
