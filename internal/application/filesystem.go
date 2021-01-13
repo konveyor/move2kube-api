@@ -54,7 +54,6 @@ const (
 	m2kPlanOngoingFile       = "." + appNameShort + "plan"
 	apiServerPort            = 8080
 	timestampRegex           = `time="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"`
-	m2kString                = "Move2Kube"
 	newfilesMetadataFileName = "newfiles.txt"
 )
 
@@ -319,7 +318,7 @@ func runPlan(appName string, debugMode bool) bool {
 		for scannerStdout.Scan() {
 			text := scannerStdout.Text()
 			var re = regexp.MustCompile(timestampRegex)
-			replacementString := "App name: " + appName + "; " + m2kString
+			replacementString := "App name: " + appName + ";"
 			updatedText := re.ReplaceAllString(text, replacementString)
 			if strings.TrimSpace(text) != "" {
 				outch <- updatedText
@@ -334,7 +333,7 @@ func runPlan(appName string, debugMode bool) bool {
 		for scannerStderr.Scan() {
 			text := scannerStderr.Text()
 			var re = regexp.MustCompile(timestampRegex)
-			replacementString := "App name: " + appName + "; " + m2kString
+			replacementString := "App name: " + appName + ";"
 			updatedText := re.ReplaceAllString(text, replacementString)
 			if strings.TrimSpace(text) != "" {
 				outch <- updatedText
@@ -496,7 +495,7 @@ func runTranslate(appName string, artifactpath string, artifactName string, tran
 		for scannerStdout.Scan() {
 			text := scannerStdout.Text()
 			var re = regexp.MustCompile(timestampRegex)
-			replacementString := "App name: " + appName + "; Artifact name:" + artifactName + "; " + m2kString
+			replacementString := "App name: " + appName + "; Artifact name:" + artifactName + ";"
 			updatedText := re.ReplaceAllString(text, replacementString)
 			if strings.TrimSpace(text) != "" {
 				outch <- updatedText
@@ -511,7 +510,7 @@ func runTranslate(appName string, artifactpath string, artifactName string, tran
 		for scannerStderr.Scan() {
 			text := scannerStderr.Text()
 			var re = regexp.MustCompile(timestampRegex)
-			replacementString := "App name: " + appName + "; Artifact name:" + artifactName + "; " + m2kString
+			replacementString := "App name: " + appName + "; Artifact name:" + artifactName + ";"
 			updatedText := re.ReplaceAllString(text, replacementString)
 			if strings.TrimSpace(text) != "" {
 				outch <- updatedText
