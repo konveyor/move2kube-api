@@ -527,11 +527,14 @@ func runTranslate(appName string, artifactpath string, artifactName string, tran
 		srcDirectoryPath := filepath.Join(appName, assetsDirectory, srcDirectory)
 		artifactDirectoryPath := filepath.Join(appName, artifactsDirectoryName, artifactName, appName)
 
-		generateAdditionalFilesInfo(artifactDirectoryPath)
+		if exists, _ := doesPathExist(filepath.Join(artifactDirectoryPath, containersDirectory)); exists {
 
-		err = copy.Copy(srcDirectoryPath, filepath.Join(artifactDirectoryPath, containersDirectory))
-		if err != nil {
-			log.Errorf("Unable to copy source files : %s", err)
+			generateAdditionalFilesInfo(artifactDirectoryPath)
+
+			err = copy.Copy(srcDirectoryPath, filepath.Join(artifactDirectoryPath, containersDirectory))
+			if err != nil {
+				log.Errorf("Unable to copy source files : %s", err)
+			}
 		}
 
 		artifacts := filepath.Join(artifactpath, appName)
