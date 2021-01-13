@@ -319,7 +319,8 @@ func runPlan(appName string, debugMode bool) bool {
 		for scannerStdout.Scan() {
 			text := scannerStdout.Text()
 			var re = regexp.MustCompile(timestampRegex)
-			updatedText := re.ReplaceAllString(text, m2kString)
+			replacementString := "App name: " + appName + "; " + m2kString
+			updatedText := re.ReplaceAllString(text, replacementString)
 			if strings.TrimSpace(text) != "" {
 				outch <- updatedText
 			}
@@ -333,7 +334,8 @@ func runPlan(appName string, debugMode bool) bool {
 		for scannerStderr.Scan() {
 			text := scannerStderr.Text()
 			var re = regexp.MustCompile(timestampRegex)
-			updatedText := re.ReplaceAllString(text, m2kString)
+			replacementString := "App name: " + appName + "; " + m2kString
+			updatedText := re.ReplaceAllString(text, replacementString)
 			if strings.TrimSpace(text) != "" {
 				outch <- updatedText
 			}
@@ -494,7 +496,8 @@ func runTranslate(appName string, artifactpath string, artifactName string, tran
 		for scannerStdout.Scan() {
 			text := scannerStdout.Text()
 			var re = regexp.MustCompile(timestampRegex)
-			updatedText := re.ReplaceAllString(text, m2kString)
+			replacementString := "App name: " + appName + "; Artifact name:" + artifactName + "; " + m2kString
+			updatedText := re.ReplaceAllString(text, replacementString)
 			if strings.TrimSpace(text) != "" {
 				outch <- updatedText
 			}
@@ -508,7 +511,8 @@ func runTranslate(appName string, artifactpath string, artifactName string, tran
 		for scannerStderr.Scan() {
 			text := scannerStderr.Text()
 			var re = regexp.MustCompile(timestampRegex)
-			updatedText := re.ReplaceAllString(text, m2kString)
+			replacementString := "App name: " + appName + "; Artifact name:" + artifactName + "; " + m2kString
+			updatedText := re.ReplaceAllString(text, replacementString)
 			if strings.TrimSpace(text) != "" {
 				outch <- updatedText
 			}
