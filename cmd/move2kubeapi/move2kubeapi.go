@@ -21,13 +21,13 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/konveyor/move2kube-api/internal/application"
 	"github.com/konveyor/move2kube-api/internal/move2kubeapi"
 )
 
 var (
 	workspace string
 	port      int
-	verbose   bool
 )
 
 func main() {
@@ -42,14 +42,15 @@ func main() {
 For more information, visit https://konveyor.io/move2kube
 `,
 		Run: func(cmd *cobra.Command, _ []string) {
-			if verbose {
+			if application.Verbose {
 				log.SetLevel(log.DebugLevel)
 			}
+			log.Debugf("Verbose output: %v", application.Verbose)
 			move2kubeapi.Serve(port)
 		},
 	}
 
-	apiCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
+	apiCmd.Flags().BoolVarP(&application.Verbose, "verbose", "v", false, "Enable verbose output")
 	apiCmd.Flags().IntVarP(&port, "port", "p", 8080, "Port for the QA service. By default it chooses a random free port.")
 
 	if err := apiCmd.Execute(); err != nil {

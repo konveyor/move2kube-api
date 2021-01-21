@@ -54,8 +54,12 @@ const (
 	m2kPlanOngoingFile       = "." + appNameShort + "plan"
 	apiServerPort            = 8080
 	timestampRegex           = `time="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"`
+	loglevelRegex            = `level=([a-z]+) `
 	newfilesMetadataFileName = "newfiles.txt"
 )
+
+// Verbose flag if set to true, will set logging level to debug level
+var Verbose bool
 
 // FileSystem implements the IApplication interface and manages the application data in a filesystem
 type FileSystem struct {
@@ -284,10 +288,11 @@ func runPlan(appName string, debugMode bool) bool {
 
 	srcDirectoryPath := filepath.Join(assetsDirectory, srcDirectory)
 	var cmd *exec.Cmd
-	if !debugMode {
-		cmd = exec.Command("move2kube", "plan", "-s", srcDirectoryPath)
-	} else {
+
+	if Verbose || debugMode {
 		cmd = exec.Command("move2kube", "plan", "--verbose", "-s", srcDirectoryPath)
+	} else {
+		cmd = exec.Command("move2kube", "plan", "-s", srcDirectoryPath)
 	}
 	cmd.Dir = appName
 
@@ -348,7 +353,11 @@ func runPlan(appName string, debugMode bool) bool {
 	}()
 
 	for t := range outch {
-		log.Info(t)
+		if Verbose {
+			generateVerboseLogs(t)
+		} else {
+			log.Info(t)
+		}
 	}
 	os.Remove(m2kplanongoing)
 	return true
@@ -464,10 +473,10 @@ func runTranslate(appName string, artifactpath string, artifactName string, tran
 		log.Warnf("Unable to get a free port : %s", err)
 	}
 	var cmd *exec.Cmd
-	if !debugMode {
-		cmd = exec.Command("move2kube", "translate", "-c", "--qadisablecli", "--qaport="+port, "--qacache="+filepath.Join(artifactpath, "m2kqache.yaml"), "--source", "../../assets/src/")
-	} else {
+	if Verbose || debugMode {
 		cmd = exec.Command("move2kube", "translate", "-c", "--qadisablecli", "--verbose", "--qaport="+port, "--qacache="+filepath.Join(artifactpath, "m2kqache.yaml"), "--source", "../../assets/src/")
+	} else {
+		cmd = exec.Command("move2kube", "translate", "-c", "--qadisablecli", "--qaport="+port, "--qacache="+filepath.Join(artifactpath, "m2kqache.yaml"), "--source", "../../assets/src/")
 	}
 	cmd.Dir = artifactpath
 
@@ -550,9 +559,26 @@ func runTranslate(appName string, artifactpath string, artifactName string, tran
 			translatech <- port
 			close(translatech)
 		}
-		log.Info(t)
+		if Verbose {
+			generateVerboseLogs(t)
+		} else {
+			log.Info(t)
+		}
 	}
 	return true
+}
+
+// generateVerboseLogs synchronizes move2kube-api loggging level wrt move2kube logging level
+func generateVerboseLogs(message string) {
+	var loggingLevel string
+	var re = regexp.MustCompile(loglevelRegex)
+	sm := re.FindStringSubmatch(message)
+	if len(sm) > 1 {
+		loggingLevel = sm[1]
+	} else {
+		loggingLevel = "info"
+	}
+	syncLoggingLevel(loggingLevel, message)
 }
 
 // generateAdditionalFilesInfo saves the info about the new files in the containers directory
@@ -902,4 +928,24 @@ func getDNSHostName() string {
 	}
 	log.Infof("Chosen hostname : %s", dnsHostName)
 	return dnsHostName
+}
+
+//syncLoggingLevel matches log levels of Move2Kube-api and Move2Kube
+func syncLoggingLevel(loggingLevel, message string) {
+	switch {
+	case loggingLevel == "debug":
+		log.Debug(message)
+	case loggingLevel == "info":
+		log.Info(message)
+	case loggingLevel == "error":
+		log.Error(message)
+	case loggingLevel == "warning":
+		log.Warn(message)
+	case loggingLevel == "panic":
+		log.Panic(message)
+	case loggingLevel == "fatal":
+		log.Fatal(message)
+	default:
+		log.Info(message)
+	}
 }
