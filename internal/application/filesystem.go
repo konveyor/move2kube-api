@@ -750,7 +750,7 @@ func (a *FileSystem) GetQuestion(appName string, artifact string) (problem strin
 		log.Error(err)
 		return "", err
 	}
-	log.Infof(string(body))
+	log.Infof("Question : %s", string(body))
 	return string(body), nil
 }
 
@@ -765,6 +765,7 @@ func (a *FileSystem) PostSolution(appName string, artifact string, solution stri
 	}
 	hostname := getDNSHostName()
 	if hostname == metadatayaml.Node {
+		log.Infof("Answer : %s", solution)
 		urlstr := metadatayaml.URL + "/problems/current/solution"
 		resp, err := http.Post(urlstr, "application/json", bytes.NewBuffer([]byte(solution)))
 		if err != nil {
@@ -919,14 +920,14 @@ func getDNSHostName() string {
 			}
 			ptr, _ := net.LookupAddr(ip.String())
 			for _, ptrvalue := range ptr {
-				log.Infof("HostNames : %s", ptrvalue)
+				log.Debugf("HostNames : %s", ptrvalue)
 				if len(dnsHostName) <= len(ptrvalue) {
 					dnsHostName = ptrvalue
 				}
 			}
 		}
 	}
-	log.Infof("Chosen hostname : %s", dnsHostName)
+	log.Debugf("Chosen hostname : %s", dnsHostName)
 	return dnsHostName
 }
 
@@ -942,9 +943,9 @@ func syncLoggingLevel(loggingLevel, message string) {
 	case loggingLevel == "warning":
 		log.Warn(message)
 	case loggingLevel == "panic":
-		log.Panic(message)
+		log.Error(message)
 	case loggingLevel == "fatal":
-		log.Fatal(message)
+		log.Error(message)
 	default:
 		log.Info(message)
 	}

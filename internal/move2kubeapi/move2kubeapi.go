@@ -354,7 +354,7 @@ func postSolution(w http.ResponseWriter, r *http.Request) {
 	solutionstr := string(solution)
 	err = m2kapp.PostSolution(name, artifacts, solutionstr)
 	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
+		w.WriteHeader(http.StatusBadRequest)
 	} else {
 		w.WriteHeader(http.StatusOK)
 	}
