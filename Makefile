@@ -35,6 +35,7 @@ GIT_COMMIT = $(shell git rev-parse HEAD)
 GIT_SHA    = $(shell git rev-parse --short HEAD)
 GIT_TAG    = $(shell git describe --tags --abbrev=0 --exact-match 2>/dev/null)
 GIT_DIRTY  = $(shell test -n "`git status --porcelain`" && echo "dirty" || echo "clean")
+HAS_UPX    = $(shell command -v upx >/dev/null && echo true || echo false)
 
 GOGET     := cd / && GO111MODULE=on go get -u 
 
@@ -72,6 +73,14 @@ build: get $(BINDIR)/$(BINNAME) ## Build go code
 
 $(BINDIR)/$(BINNAME): $(SRC)
 	go build -ldflags '$(LDFLAGS)' -o $(BINDIR)/$(BINNAME) ./cmd/move2kubeapi
+ifeq ($(HAS_UPX),true)
+	@echo 'upx detected. compressing binary...'
+	upx $(BINDIR)/$(BINNAME)
+else
+	@echo 'In order to compress the produced binaries please install upx:'
+	@echo 'MacOS: brew install upx'
+	@echo 'Linux: sudo apt-get install upx'
+endif
 	cp $(BINDIR)/$(BINNAME) $(GOPATH)/bin/
 
 .PHONY: get
@@ -134,6 +143,14 @@ build-cross: $(GOX) clean
 
 .PHONY: dist
 dist: clean build-cross ## Build Distribution
+ifeq ($(HAS_UPX),true)
+	@echo 'upx detected. compressing binary...'
+	upx $(shell find . -type f -name '$(BINNAME)')
+else
+	@echo 'In order to compress the produced binaries please install upx:'
+	@echo 'MacOS: brew install upx'
+	@echo 'Linux: sudo apt-get install upx'
+endif
 	mkdir -p $(DISTDIR)/files
 	cp -r ./LICENSE $(DISTDIR)/files/
 	cd $(DISTDIR) && \
