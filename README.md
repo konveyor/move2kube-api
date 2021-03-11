@@ -30,4 +30,4 @@ Run using container from registry using `make crun`
 
 ## Discussion
 
-* For any questions reach out to us on any of the communication channels given on our website https://konveyor.io/move2kube/
+* For any questions reach out to us on any of the communication channels given on our website https://move2kube.konveyor.io/
