@@ -39,7 +39,7 @@ func main() {
 		Short: "Move2Kube API starts the api server which manages the application data in a filesystem.",
 		Long: `Move2Kube API starts the api server which manages the application data in a filesystem.
 
-For more information, visit https://konveyor.io/move2kube
+For more information, visit https://move2kube.konveyor.io/
 `,
 		Run: func(cmd *cobra.Command, _ []string) {
 			if application.Verbose {
