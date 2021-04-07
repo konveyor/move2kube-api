@@ -190,4 +190,4 @@ cpush: ## Push docker image
 
 .PHONY: crun
 crun: ## Run docker image
-	docker run -p 8080:8080 -v /var/run/docker.sock:/var/run/docker.sock -v ${PWD}/:/workspace ${REGISTRYNS}/${BINNAME}:${VERSION}
+	docker run --rm -p 8080:8080 -v /var/run/docker.sock:/var/run/docker.sock -v ${PWD}/:/workspace ${REGISTRYNS}/${BINNAME}:${VERSION}
