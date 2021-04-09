@@ -287,9 +287,9 @@ func runPlan(appName string, debugMode bool) bool {
 	var cmd *exec.Cmd
 
 	if Verbose || debugMode {
-		cmd = exec.Command("move2kube", "plan", "--verbose", "-s", srcDirectoryPath)
+		cmd = exec.Command("move2kube", "plan", "--verbose", "-s", srcDirectoryPath, "-n", appName)
 	} else {
-		cmd = exec.Command("move2kube", "plan", "-s", srcDirectoryPath)
+		cmd = exec.Command("move2kube", "plan", "-s", srcDirectoryPath, "-n", appName)
 	}
 	cmd.Dir = appName
 
