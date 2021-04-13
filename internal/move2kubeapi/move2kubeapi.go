@@ -38,6 +38,15 @@ func swagger(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Swagger will come here!")
 }
 
+func support(w http.ResponseWriter, r *http.Request) {
+	responseBody := m2kapp.GetSupportInfo()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(responseBody); err != nil {
+		log.Errorf("Failed to write support information. Error: %q", err)
+	}
+}
+
 func getApplications(w http.ResponseWriter, r *http.Request) {
 	applications := m2kapp.GetApplications()
 	w.Header().Set("Content-Type", "application/json")
@@ -382,6 +391,7 @@ func Serve(port int) {
 	//router.Handle("/", handlers.LoggingHandler(os.Stdout, http.HandlerFunc(swagger)))
 	router.HandleFunc("/", swagger)
 	router.HandleFunc("/api/v1/", swagger)
+	router.HandleFunc("/api/v1/support", support)
 
 	router.HandleFunc("/api/v1/download", download).Methods("GET")
 	router.HandleFunc("/api/v1/applications", createApplication).Methods("POST")

@@ -29,6 +29,7 @@ const (
 
 // IApplication defines interfact that can manage Move2Kube applications
 type IApplication interface {
+	GetSupportInfo() map[string]string
 	Download() (file io.Reader, filename string)
 	GetApplications() []Application
 	NewApplication(Application) error
