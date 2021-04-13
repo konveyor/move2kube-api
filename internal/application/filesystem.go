@@ -264,6 +264,35 @@ func (a *FileSystem) GetAssetsList(appName string) (assets []string) {
 	return assets
 }
 
+// GetSupportInfo returns information useful for debugging.
+// Returns the output of move2kube version -l
+func (*FileSystem) GetSupportInfo() map[string]string {
+	cmd := exec.Command("move2kube", "version", "-l")
+	outBytes, err := cmd.Output()
+	if err != nil {
+		log.Errorf("Failed to get the move2kube CLI version information. Error: %q", err)
+		return nil
+	}
+	info := map[string]string{}
+	if err := yaml.NewDecoder(bytes.NewReader(outBytes)).Decode(&info); err != nil {
+		log.Errorf("Failed to parse the move2kube CLI version output as yaml. Error: %q", err)
+		return nil
+	}
+	info["platform"] = "unknown"
+	if val, ok := os.LookupEnv("MOVE2KUBE_PLATFORM"); ok {
+		info["platform"] = val
+	}
+	info["docker"] = ("docker socket is mounted")
+	if _, err := os.Stat("/var/run/docker.sock"); err != nil {
+		if os.IsNotExist(err) {
+			info["docker"] = "docker socket is not mounted"
+		} else {
+			info["docker"] = fmt.Sprintf("docker socket error: %q", err)
+		}
+	}
+	return info
+}
+
 // GeneratePlan starts generation of plan of an application
 func (a *FileSystem) GeneratePlan(appName string, debugMode bool) error {
 	log.Infof("About to start planning application %s", appName)

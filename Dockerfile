@@ -45,6 +45,7 @@ RUN make build
 
 # Run image
 FROM quay.io/konveyor/move2kube:${VERSION}
+ENV MOVE2KUBE_PLATFORM="${MOVE2KUBE_PLATFORM}:api-dockerfile"
 # Install move2kube-api
 COPY --from=build_base /go/bin/move2kube-api /bin/move2kube-api
 # Start app
