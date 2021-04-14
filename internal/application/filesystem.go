@@ -282,6 +282,15 @@ func (*FileSystem) GetSupportInfo() map[string]string {
 	if val, ok := os.LookupEnv("MOVE2KUBE_PLATFORM"); ok {
 		info["platform"] = val
 	}
+	info["api_image"] = "unknown"
+	if val, ok := os.LookupEnv("MOVE2KUBE_API_IMAGE_HASH"); ok {
+		info["api_image"] = val
+	}
+	info["ui_image"] = "unknown"
+	if val, ok := os.LookupEnv("MOVE2KUBE_UI_IMAGE_HASH"); ok {
+		info["ui_image"] = val
+	}
+
 	info["docker"] = ("docker socket is mounted")
 	if _, err := os.Stat("/var/run/docker.sock"); err != nil {
 		if os.IsNotExist(err) {
