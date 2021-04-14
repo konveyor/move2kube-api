@@ -53,6 +53,8 @@ For more information, visit https://move2kube.konveyor.io/
 	apiCmd.Flags().BoolVarP(&application.Verbose, "verbose", "v", false, "Enable verbose output")
 	apiCmd.Flags().IntVarP(&port, "port", "p", 8080, "Port for the QA service. By default it chooses a random free port.")
 
+	apiCmd.AddCommand(getVersionCommand())
+
 	if err := apiCmd.Execute(); err != nil {
 		log.Fatalf("Error: %q", err)
 	}

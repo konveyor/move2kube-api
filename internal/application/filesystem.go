@@ -33,6 +33,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/konveyor/move2kube-api/cmd/version"
 	"github.com/konveyor/move2kube-api/internal/types"
 	archiver "github.com/mholt/archiver/v3"
 	"github.com/phayes/freeport"
@@ -268,19 +269,25 @@ func (a *FileSystem) GetAssetsList(appName string) (assets []string) {
 // Returns the output of move2kube version -l
 func (*FileSystem) GetSupportInfo() map[string]string {
 	cmd := exec.Command("move2kube", "version", "-l")
-	outBytes, err := cmd.Output()
+	cliVersionBytes, err := cmd.Output()
 	if err != nil {
 		log.Errorf("Failed to get the move2kube CLI version information. Error: %q", err)
 		return nil
 	}
 	info := map[string]string{}
-	if err := yaml.NewDecoder(bytes.NewReader(outBytes)).Decode(&info); err != nil {
-		log.Errorf("Failed to parse the move2kube CLI version output as yaml. Error: %q", err)
-		return nil
-	}
+	info["cli_version"] = string(cliVersionBytes)
+	info["api_version"] = version.GetVersion(true)
 	info["platform"] = "unknown"
 	if val, ok := os.LookupEnv("MOVE2KUBE_PLATFORM"); ok {
 		info["platform"] = val
+	}
+	info["api_image"] = "unknown"
+	if val, ok := os.LookupEnv("MOVE2KUBE_API_IMAGE_HASH"); ok {
+		info["api_image"] = val
+	}
+	info["ui_image"] = "unknown"
+	if val, ok := os.LookupEnv("MOVE2KUBE_UI_IMAGE_HASH"); ok {
+		info["ui_image"] = val
 	}
 	info["docker"] = ("docker socket is mounted")
 	if _, err := os.Stat("/var/run/docker.sock"); err != nil {
