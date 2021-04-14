@@ -44,7 +44,7 @@ ifdef VERSION
 endif
 BINARY_VERSION ?= ${GIT_TAG}
 ifneq ($(BINARY_VERSION),)
-	LDFLAGS += -X github.com/konveyor/${BINNAME}/types/info.version=${BINARY_VERSION}
+	LDFLAGS += -X github.com/konveyor/${BINNAME}/cmd/version.version=${BINARY_VERSION}
 	VERSION ?= $(BINARY_VERSION)
 endif
 
@@ -54,10 +54,10 @@ VERSION_METADATA = unreleased
 ifneq ($(GIT_TAG),)
 	VERSION_METADATA =
 endif
-LDFLAGS += -X github.com/konveyor/${BINNAME}/types/info.metadata=${VERSION_METADATA}
+LDFLAGS += -X github.com/konveyor/${BINNAME}/cmd/version.buildmetadata=${VERSION_METADATA}
 
-LDFLAGS += -X github.com/konveyor/${BINNAME}/types/info.gitCommit=${GIT_COMMIT}
-LDFLAGS += -X github.com/konveyor/${BINNAME}/types/info.gitTreeState=${GIT_DIRTY}
+LDFLAGS += -X github.com/konveyor/${BINNAME}/cmd/version.gitCommit=${GIT_COMMIT}
+LDFLAGS += -X github.com/konveyor/${BINNAME}/cmd/version.gitTreeState=${GIT_DIRTY}
 LDFLAGS += -extldflags "-static"
 
 # HELP
