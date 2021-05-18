@@ -342,14 +342,10 @@ func getQuestion(w http.ResponseWriter, r *http.Request) {
 	problem, err := m2kapp.GetQuestion(name, artifacts)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
-	} else {
-		if problem == "" {
-			w.WriteHeader(http.StatusAlreadyReported)
-		} else {
-			w.WriteHeader(http.StatusOK)
-			_, _ = io.WriteString(w, problem)
-		}
+		return
 	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, problem)
 }
 
 func postSolution(w http.ResponseWriter, r *http.Request) {
