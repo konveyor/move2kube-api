@@ -102,7 +102,7 @@ func (a *FileSystem) GetApplication(name string) (Application, error) {
 	_, err := os.Stat(name)
 	if os.IsNotExist(err) {
 		log.Errorf("Application %s does not exist.", name)
-		return app, fmt.Errorf("Not Found")
+		return app, fmt.Errorf("not found")
 	}
 	status := []ApplicationStatus{}
 	//Checks for contents too if the dir exists
@@ -655,7 +655,7 @@ func (a *FileSystem) GetQuestion(appName string, artifact string) (problem strin
 	if err != nil {
 		log.Infof("Artifact generation over for %s for %s", appName, artifact)
 		log.Info(err)
-		return "", nil
+		return "", err
 	}
 	hostname := getDNSHostName()
 	if hostname == metadatayaml.Node {
