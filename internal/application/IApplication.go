@@ -39,7 +39,7 @@ type IApplication interface {
 	DeleteAsset(appName, asset string) error
 	GetAsset(appName, asset string) (file io.Reader, filename string)
 	GetAssetsList(appName string) (assets []string)
-	Translate(appname, artifactName, plan string, debugMode bool) error
+	Transform(appname, artifactName, plan string, debugMode bool) error
 	GetTargetArtifacts(appName, artifact string) (file io.Reader, filename string) // Return "ongoing" as filename if artifacts are in the process of generation
 	GetTargetArtifactsList(appName string) (artifacts []string)
 	DeleteTargetArtifacts(appName string, asset string) error
