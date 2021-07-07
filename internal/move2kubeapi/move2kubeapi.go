@@ -202,10 +202,10 @@ func generateTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 		debugFlag, _ = strconv.ParseBool(keys[0])
 		log.Debugf("Query parameter debug : %t", debugFlag)
 	}
-	err := m2kapp.Translate(name, artifactName, plan, debugFlag)
+	err := m2kapp.Transform(name, artifactName, plan, debugFlag)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = io.WriteString(w, "Could not start translation : "+err.Error())
+		_, _ = io.WriteString(w, "Could not start transformation : "+err.Error())
 	} else {
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = io.WriteString(w, artifactName)
@@ -218,7 +218,7 @@ func getTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 
 	file, filename := m2kapp.GetTargetArtifacts(name, artifact)
 	if filename == "error" {
-		log.Errorf("Artifact %s not found. Start Translation.", artifact)
+		log.Errorf("Artifact %s not found. Start Transformation.", artifact)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	} else if filename == "ongoing" {

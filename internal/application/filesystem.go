@@ -433,9 +433,9 @@ func (a *FileSystem) DeletePlan(appName string) error {
 	return nil
 }
 
-// Translate starts the translation phase for an application
-func (a *FileSystem) Translate(appName, artifactName, plan string, debugMode bool) error {
-	log.Infof("About to start translation of application %s", appName)
+// Transform starts the transformation phase for an application
+func (a *FileSystem) Transform(appName, artifactName, plan string, debugMode bool) error {
+	log.Infof("About to start transformation of application %s", appName)
 
 	artifactpath := filepath.Join(appName, artifactsDirectoryName, artifactName)
 	err := os.MkdirAll(artifactpath, 0777)
@@ -473,10 +473,10 @@ func (a *FileSystem) Translate(appName, artifactName, plan string, debugMode boo
 	}
 
 	log.Infof("Debug level: %t", debugMode)
-	translatech := make(chan string, 10)
-	go runTranslate(appName, artifactpath, artifactName, translatech, debugMode)
+	transformch := make(chan string, 10)
+	go runTransform(appName, artifactpath, artifactName, transformch, debugMode)
 	log.Infof("Waiting for QA engine to start for app %s", appName)
-	port := <-translatech
+	port := <-transformch
 	appmetadata := types.AppMetadata{}
 	appmetadata.URL = "http://localhost:" + port
 	appmetadata.Node = getDNSHostName()
@@ -493,12 +493,12 @@ func (a *FileSystem) Translate(appName, artifactName, plan string, debugMode boo
 		return err
 	}
 
-	log.Infof("Translation started for application %s with url %s", appName, appmetadata.URL)
+	log.Infof("Transformation started for application %s with url %s", appName, appmetadata.URL)
 	return nil
 }
 
-func runTranslate(appName string, artifactpath string, artifactName string, translatech chan string, debugMode bool) bool {
-	log.Infof("Starting Translate for %s", appName)
+func runTransform(appName string, artifactpath string, artifactName string, transformch chan string, debugMode bool) bool {
+	log.Infof("Starting Transform for %s", appName)
 
 	portint, err := freeport.GetFreePort()
 	port := strconv.Itoa(portint)
@@ -507,9 +507,9 @@ func runTranslate(appName string, artifactpath string, artifactName string, tran
 	}
 	var cmd *exec.Cmd
 	if Verbose || debugMode {
-		cmd = exec.Command("move2kube", "translate", "-c", "--qadisablecli", "--verbose", "--qaport="+port, "--qacache="+filepath.Join(artifactpath, "m2kqache.yaml"), "--source", "../../assets/src/")
+		cmd = exec.Command("move2kube", "transform", "--qadisablecli", "--verbose", "--qaport="+port, "--config="+filepath.Join(artifactpath, "m2kconfig.yaml"), "--source=../../assets/src/")
 	} else {
-		cmd = exec.Command("move2kube", "translate", "-c", "--qadisablecli", "--qaport="+port, "--qacache="+filepath.Join(artifactpath, "m2kqache.yaml"), "--source", "../../assets/src/")
+		cmd = exec.Command("move2kube", "transform", "--qadisablecli", "--qaport="+port, "--config="+filepath.Join(artifactpath, "m2kconfig.yaml"), "--source=../../assets/src/")
 	}
 	cmd.Dir = artifactpath
 
@@ -577,8 +577,8 @@ func runTranslate(appName string, artifactpath string, artifactName string, tran
 
 	for t := range outch {
 		if strings.Contains(t, port) {
-			translatech <- port
-			close(translatech)
+			transformch <- port
+			close(transformch)
 		}
 		if Verbose {
 			generateVerboseLogs(t)
@@ -644,7 +644,7 @@ func (a *FileSystem) DeleteTargetArtifacts(appName string, artifacts string) err
 	return nil
 }
 
-// GetQuestion returns the current question for application which is in translation phase
+// GetQuestion returns the current question for application which is in transformation phase
 func (a *FileSystem) GetQuestion(appName string, artifact string) (problem string, err error) {
 	log.Infof("Getting question %s for %s", appName, artifact)
 	artifactpath := filepath.Join(appName, artifactsDirectoryName, artifact)
@@ -745,9 +745,9 @@ func NewFileSystem() IApplication {
 	for _, application := range applications {
 		artifacts := fileSystem.GetTargetArtifactsList(application.Name)
 		for _, artifact := range artifacts {
-			err := fileSystem.Translate(application.Name, artifact, "", false)
+			err := fileSystem.Transform(application.Name, artifact, "", false)
 			if err != nil {
-				log.Errorf("Error while starting translate : %s", err)
+				log.Errorf("Error while starting transform : %s", err)
 			}
 		}
 		m2kplanongoing := filepath.Join(application.Name, m2kPlanOngoingFile+".*")
