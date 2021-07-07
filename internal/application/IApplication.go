@@ -35,10 +35,10 @@ type IApplication interface {
 	NewApplication(Application) error
 	GetApplication(name string) (Application, error)
 	DeleteApplication(name string) error
-	UploadAsset(appName string, filename string, file io.Reader) error
-	DeleteAsset(appName, asset string) error
-	GetAsset(appName, asset string) (file io.Reader, filename string)
-	GetAssetsList(appName string) (assets []string)
+	UploadAsset(appName string, filename string, file io.Reader, isCustomization bool) error
+	DeleteAsset(appName, asset string, isCustomization bool) error
+	GetAsset(appName, asset string, isCustomization bool) (file io.Reader, filename string, err error)
+	GetAssetsList(appName string, isCustomization bool) (assets []string, err error)
 	Transform(appname, artifactName, plan string, debugMode bool) error
 	GetTargetArtifacts(appName, artifact string) (file io.Reader, filename string) // Return "ongoing" as filename if artifacts are in the process of generation
 	GetTargetArtifactsList(appName string) (artifacts []string)
@@ -61,6 +61,8 @@ const (
 	ApplicationStatusPlanning ApplicationStatus = "planning"
 	// ApplicationStatusAssets indicates the application has assets
 	ApplicationStatusAssets ApplicationStatus = "assets"
+	// ApplicationStatusCustomizations indicates the application has configs
+	ApplicationStatusCustomizations ApplicationStatus = "customizations"
 	// ApplicationStatusArtifacts indicates the application has application artifacts generated
 	ApplicationStatusArtifacts ApplicationStatus = "artifacts"
 )

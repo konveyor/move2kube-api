@@ -25,11 +25,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/konveyor/move2kube-api/internal/application"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cast"
-
-	"github.com/gorilla/mux"
 )
 
 var m2kapp application.IApplication = application.NewFileSystem()
@@ -113,7 +112,7 @@ func deleteApplication(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func uploadAsset(w http.ResponseWriter, r *http.Request) {
+func uploadAsset(w http.ResponseWriter, r *http.Request, isCustomization bool) {
 	name := mux.Vars(r)["name"]
 	file, handler, err := r.FormFile("file")
 	if err != nil {
@@ -122,9 +121,7 @@ func uploadAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-
-	err = m2kapp.UploadAsset(name, handler.Filename, file)
-	if err != nil {
+	if err := m2kapp.UploadAsset(name, handler.Filename, file, isCustomization); err != nil {
 		log.Errorf("Could not update with asset : %s", err)
 		w.WriteHeader(http.StatusGone)
 		return
@@ -134,53 +131,46 @@ func uploadAsset(w http.ResponseWriter, r *http.Request) {
 	log.Infof("Asset %s uploaded successfully for app %s", handler.Filename, name)
 }
 
-func getAssetsList(w http.ResponseWriter, r *http.Request) {
+func getAssetsList(w http.ResponseWriter, r *http.Request, isCustomization bool) {
 	name := mux.Vars(r)["name"]
-
-	assets := m2kapp.GetAssetsList(name)
-	if assets == nil {
-		log.Errorf("Could not get assets")
+	assets, err := m2kapp.GetAssetsList(name, isCustomization)
+	if err != nil || assets == nil {
+		log.Errorf("Could not get the assets for the app %s . Error: %q", name, err)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Content-Type", r.Header.Get("Content-Type"))
-	err := json.NewEncoder(w).Encode(assets)
-	if err != nil {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(assets); err != nil {
 		log.Errorf("Error while getting assets list : %s", err)
 	}
 }
 
-func getAsset(w http.ResponseWriter, r *http.Request) {
+func getAsset(w http.ResponseWriter, r *http.Request, isCustomization bool) {
 	name := mux.Vars(r)["name"]
 	asset := mux.Vars(r)["asset"]
-
-	file, filename := m2kapp.GetAsset(name, asset)
-	if file == nil {
-		log.Errorf("Could not get asset %s", asset)
+	file, filename, err := m2kapp.GetAsset(name, asset, isCustomization)
+	if err != nil || file == nil {
+		log.Errorf("Could not get asset %s for the app %s . Error: %q", asset, name, err)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
-	w.Header().Set("Content-Type", r.Header.Get("Content-Type"))
-	_, err := io.Copy(w, file)
-	if err != nil {
+	if _, err := io.Copy(w, file); err != nil {
 		log.Errorf("Error while getting asset : %s", err)
 	}
 }
 
-func deleteAsset(w http.ResponseWriter, r *http.Request) {
+func deleteAsset(w http.ResponseWriter, r *http.Request, isCustomization bool) {
 	name := mux.Vars(r)["name"]
 	asset := mux.Vars(r)["asset"]
-
-	err := m2kapp.DeleteAsset(name, asset)
-	if err != nil {
+	if err := m2kapp.DeleteAsset(name, asset, isCustomization); err != nil {
 		log.Errorf("Could not delete asset : %s", err)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.WriteString(w, "Asset "+asset+" deleted successfully")
 	log.Infof("Asset %s deleted successfully for app %s", asset, name)
@@ -395,10 +385,15 @@ func Serve(port int) {
 	router.HandleFunc("/api/v1/applications/{name}", getApplication).Methods("GET")
 	router.HandleFunc("/api/v1/applications/{name}", deleteApplication).Methods("DELETE")
 
-	router.HandleFunc("/api/v1/applications/{name}/assets", getAssetsList).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}/assets", uploadAsset).Methods("POST")
-	router.HandleFunc("/api/v1/applications/{name}/assets/{asset}", deleteAsset).Methods("DELETE")
-	router.HandleFunc("/api/v1/applications/{name}/assets/{asset}", getAsset).Methods("GET")
+	router.HandleFunc("/api/v1/applications/{name}/assets", func(w http.ResponseWriter, r *http.Request) { getAssetsList(w, r, false) }).Methods("GET")
+	router.HandleFunc("/api/v1/applications/{name}/assets", func(w http.ResponseWriter, r *http.Request) { uploadAsset(w, r, false) }).Methods("POST")
+	router.HandleFunc("/api/v1/applications/{name}/assets/{asset}", func(w http.ResponseWriter, r *http.Request) { deleteAsset(w, r, false) }).Methods("DELETE")
+	router.HandleFunc("/api/v1/applications/{name}/assets/{asset}", func(w http.ResponseWriter, r *http.Request) { getAsset(w, r, false) }).Methods("GET")
+
+	router.HandleFunc("/api/v1/applications/{name}/customizations", func(w http.ResponseWriter, r *http.Request) { getAssetsList(w, r, true) }).Methods("GET")
+	router.HandleFunc("/api/v1/applications/{name}/customizations", func(w http.ResponseWriter, r *http.Request) { uploadAsset(w, r, true) }).Methods("POST")
+	router.HandleFunc("/api/v1/applications/{name}/customizations/{customization}", func(w http.ResponseWriter, r *http.Request) { deleteAsset(w, r, true) }).Methods("DELETE")
+	router.HandleFunc("/api/v1/applications/{name}/customizations/{customization}", func(w http.ResponseWriter, r *http.Request) { getAsset(w, r, true) }).Methods("GET")
 
 	router.HandleFunc("/api/v1/applications/{name}/targetartifacts", getTargetArtifactsList).Methods("GET")
 	router.HandleFunc("/api/v1/applications/{name}/targetartifacts", generateTargetArtifacts).Methods("POST")
