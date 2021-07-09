@@ -1,4 +1,4 @@
-#   Copyright IBM Corporation 2020
+#   Copyright IBM Corporation 2020, 2021
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -16,11 +16,11 @@
 ARG VERSION=latest
 
 # Build image
-FROM registry.fedoraproject.org/fedora:latest AS build_base
+FROM registry.access.redhat.com/ubi8/ubi:latest AS build_base
 WORKDIR /temp
-RUN dnf install -y git make findutils upx\
-    && dnf clean all \
-    && rm -rf /var/cache/yum
+
+RUN yum -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm 
+RUN dnf install -y git make upx
 ENV GOPATH=/go
 RUN mkdir -p $GOPATH/src $GOPATH/bin && chmod -R 777 $GOPATH
 ENV PATH=$GOPATH/bin:/usr/local/go/bin:$PATH

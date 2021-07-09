@@ -21,7 +21,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/fs"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -57,8 +56,8 @@ const (
 	timestampRegex                          = `time="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"`
 	loglevelRegex                           = `level=([a-z]+) `
 	newfilesMetadataFileName                = "newfiles.txt"
-	defaultDirectoryPermissions fs.FileMode = 0777
-	defaultFilePermissions      fs.FileMode = 0777
+	defaultDirectoryPermissions os.FileMode = 0777
+	defaultFilePermissions      os.FileMode = 0777
 )
 
 var (

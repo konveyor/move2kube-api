@@ -18,7 +18,7 @@ DISTDIR		:= $(CURDIR)/_dist
 TARGETS     := darwin/amd64 linux/amd64
 REGISTRYNS  := quay.io/konveyor
 
-GO_VERSION   ?= 1.15
+GO_VERSION   ?= 1.16
 GOPATH        = $(shell go env GOPATH)
 GOX           = $(GOPATH)/bin/gox
 GOLINT        = $(GOPATH)/bin/golint 
