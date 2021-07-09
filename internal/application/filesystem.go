@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"io/fs"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -42,19 +43,73 @@ import (
 )
 
 const (
-	assetsDirectory          = string(ApplicationStatusAssets)
-	artifactsDirectoryName   = string(ApplicationStatusArtifacts)
-	archivesDirectory        = "archives"
-	srcDirectory             = "src"
-	containersDirectory      = "containers"
-	m2kplanfilename          = appNameShort + ".plan"
-	m2kQAServerMetadataFile  = "." + appNameShort + "qa"
-	m2kPlanOngoingFile       = "." + appNameShort + "plan"
-	apiServerPort            = 8080
-	timestampRegex           = `time="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"`
-	loglevelRegex            = `level=([a-z]+) `
-	newfilesMetadataFileName = "newfiles.txt"
+	assetsDirectory                         = string(ApplicationStatusAssets)
+	artifactsDirectory                      = string(ApplicationStatusArtifacts)
+	expandedDirectory                       = "expanded"
+	archivesDirectory                       = "archives"
+	srcDirectory                            = "source"
+	customizationsDirectory                 = string(ApplicationStatusCustomizations)
+	containersDirectory                     = "containers"
+	m2kplanfilename                         = appNameShort + ".plan"
+	m2kQAServerMetadataFile                 = "." + appNameShort + "qa"
+	m2kPlanOngoingFile                      = "." + appNameShort + "plan"
+	apiServerPort                           = 8080
+	timestampRegex                          = `time="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"`
+	loglevelRegex                           = `level=([a-z]+) `
+	newfilesMetadataFileName                = "newfiles.txt"
+	defaultDirectoryPermissions fs.FileMode = 0777
+	defaultFilePermissions      fs.FileMode = 0777
 )
+
+var (
+	validArchiveExts = []string{".zip", ".tar", ".tgz", ".gz"}
+)
+
+/*
+Workspace Folder Structure
+--------------------------
+We make a copy of the entire source and config folders whenever a new run is triggered (by clicking the Transform button)
+to avoid race conditions with some user changing the source folder while a plan or transformation is in progress.
+
+It also allows for resuming previous runs. We remove the output folder if it exists (while preserving the m2kqaconfig file).
+NOTE: don't need to preserve the m2kqacache because we cannot provide it to the subsequent runs to resume. The qacache flag has been removed from the CLI.
+
+This also allows for neat features like showing a diff of the folder structure between runs.
+This architecture should support multiple pod restarts (even during planning/translation).
+
+TODO: also need to figure out where to put the config files. Currently we are not accepting upload or use of config files.
+
+workspace/
+  myapp1/
+    assets/
+      expanded/
+        source/
+          lang-plat/
+          estore/
+          .m2kignore
+        customizations/
+          config-1/
+          config-2/
+        m2k.plan
+      archives/
+        source/
+          lang-plat.zip
+          estore.tar.gz
+        customizations/
+          config-1.zip
+          config-2.zip
+    artifacts/
+      myapp1_12345/
+        source/
+          lang-plat/
+          estore/
+          .m2kignore
+        customizations/
+          config-1/
+          config-2/
+        output/
+        output.zip
+*/
 
 // Verbose flag if set to true, will set logging level to debug level
 var Verbose bool
@@ -72,24 +127,21 @@ func (a *FileSystem) Download() (file io.Reader, filename string) {
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		log.Errorf("Cannot get file: %s", err)
+		log.Errorf("failed to open the file at path %s . Error: %q", path, err)
 		return nil, ""
 	}
 	return f, filepath.Base(path)
-
 }
 
 // NewApplication creates a new application in the filesystem
 func (a *FileSystem) NewApplication(application Application) error {
 	log.Infof("Creating application : %s", application.Name)
-	_, err := os.Stat(application.Name)
-	if !os.IsNotExist(err) {
-		log.Errorf("Application %s already exists.", application.Name)
-		return fmt.Errorf("already exists")
+	if _, err := os.Stat(application.Name); !os.IsNotExist(err) {
+		err := fmt.Errorf("the application %s already exists", application.Name)
+		log.Error(err)
+		return err
 	}
-
-	err = os.MkdirAll(application.Name, 0777)
-	if err != nil {
+	if err := os.MkdirAll(application.Name, defaultDirectoryPermissions); err != nil {
 		log.Error(err)
 		return err
 	}
@@ -101,18 +153,19 @@ func (a *FileSystem) GetApplication(name string) (Application, error) {
 	app := Application{Name: name}
 	_, err := os.Stat(name)
 	if os.IsNotExist(err) {
-		log.Errorf("Application %s does not exist.", name)
-		return app, fmt.Errorf("not found")
+		err := fmt.Errorf("the application %s does not exist", name)
+		log.Error(err)
+		return app, err
 	}
 	status := []ApplicationStatus{}
 	//Checks for contents too if the dir exists
 	if exists, _ := doesPathExist(filepath.Join(name, assetsDirectory)); exists {
 		status = append(status, ApplicationStatusAssets)
 	}
-	if exists, _ := doesPathExist(filepath.Join(name, artifactsDirectoryName)); exists {
+	if exists, _ := doesPathExist(filepath.Join(name, artifactsDirectory)); exists {
 		status = append(status, ApplicationStatusArtifacts)
 	}
-	if exists, _ := doesPathExist(filepath.Join(name, "m2k.plan")); exists {
+	if exists, _ := doesPathExist(filepath.Join(name, assetsDirectory, expandedDirectory, "m2k.plan")); exists {
 		status = append(status, ApplicationStatusPlan)
 	}
 	if exists, _ := doesPathExist(filepath.Join(name, m2kPlanOngoingFile+".*")); exists {
@@ -149,120 +202,152 @@ func (a *FileSystem) DeleteApplication(name string) error {
 }
 
 // UploadAsset uploads an asset into the filesystem
-func (a *FileSystem) UploadAsset(appName string, filename string, file io.Reader) error {
-	_, err := a.GetApplication(appName)
+func (a *FileSystem) UploadAsset(appName string, filename string, file io.Reader, isCustomization bool) error {
+	if _, err := a.GetApplication(appName); err != nil {
+		return fmt.Errorf("failed to get the application with name %s . Error: %q", appName, err)
+	}
+	archiveName, expandedDirName, err := NormalizeAssetName(filename)
 	if err != nil {
-		log.Error("Application does not exist")
+		return fmt.Errorf("failed to normalize the asset filename %s . Error: %q", filename, err)
+	}
+
+	assetsDir := filepath.Join(appName, assetsDirectory)
+	archDir := filepath.Join(assetsDir, archivesDirectory, srcDirectory)
+	if isCustomization {
+		archDir = filepath.Join(assetsDir, archivesDirectory, customizationsDirectory)
+	}
+	srcDir := filepath.Join(assetsDir, expandedDirectory, srcDirectory)
+	if isCustomization {
+		srcDir = filepath.Join(assetsDir, expandedDirectory, customizationsDirectory)
+	}
+
+	archivePath := filepath.Join(archDir, archiveName)
+	expandedDirPath := filepath.Join(srcDir, expandedDirName)
+
+	if err := os.RemoveAll(expandedDirPath); err != nil {
+		return fmt.Errorf("failed to remove the directory at path %s . Error: %q", expandedDirPath, err)
+	}
+	if err := os.MkdirAll(archDir, defaultDirectoryPermissions); err != nil {
+		log.Error(err)
+		return err
+	}
+	if err := putM2KIgnore(srcDir); err != nil { // also creates the directory if it doesn't exist, overwrites if it does exist
+		log.Error(err)
+		return err
+	}
+	if err := putM2KIgnore(expandedDirPath); err != nil { // TODO: is this necessary?
+		log.Error(err)
 		return err
 	}
 
-	archivefilePath := filepath.Join(appName, assetsDirectory, archivesDirectory, filename)
-	srcDirectoryPath := strings.Split(filepath.Join(appName, assetsDirectory, srcDirectory, filename), ".")[0]
-	os.RemoveAll(srcDirectoryPath)
-	err = os.MkdirAll(filepath.Join(appName, assetsDirectory, archivesDirectory), 0777)
+	// write the archive they uploaded
+	f, err := os.OpenFile(archivePath, os.O_WRONLY|os.O_CREATE, defaultFilePermissions)
 	if err != nil {
-		log.Error(err)
-		return err
-	}
-	err = os.MkdirAll(srcDirectoryPath, 0777)
-	if err != nil {
-		log.Error(err)
-		return err
-	}
-
-	err = ioutil.WriteFile(filepath.Join(appName, assetsDirectory, srcDirectory, ".m2kignore"), []byte("."), 0777)
-	if err != nil {
-		log.Error(err)
-		return err
-	}
-	err = ioutil.WriteFile(filepath.Join(srcDirectoryPath, ".m2kignore"), []byte("."), 0777)
-	if err != nil {
-		log.Error(err)
-		return err
-	}
-
-	f, err := os.OpenFile(archivefilePath, os.O_WRONLY|os.O_CREATE, 0777)
-	if err != nil {
-		log.Errorf("Cannot open file to write : %s", err)
+		log.Errorf("failed to write the file to path %s . Error: %q", archivePath, err)
 		return err
 	}
 	defer f.Close()
-	_, _ = io.Copy(f, file)
-	err = archiver.Unarchive(archivefilePath, srcDirectoryPath)
-	if err == nil {
-		return nil
-	} else if filepath.Ext(archivefilePath) == "zip" {
-		err = archiver.NewZip().Unarchive(archivefilePath, srcDirectoryPath)
-		if err == nil {
-			return nil
-		} else if filepath.Ext(archivefilePath) == "tar" {
-			err = archiver.NewTar().Unarchive(archivefilePath, srcDirectoryPath)
-			if err == nil {
-				return nil
-			} else if filepath.Ext(archivefilePath) == "tgz" || strings.HasSuffix(archivefilePath, "tar.gz") {
-				err = archiver.NewTarGz().Unarchive(archivefilePath, srcDirectoryPath)
-				if err == nil {
-					return nil
-				}
-				log.Error(err)
-				return err
-			}
-		}
+	if _, err := io.Copy(f, file); err != nil {
+		return fmt.Errorf("failed to receive the asset %s completely. Error: %q", filename, err)
 	}
-	return nil
+
+	// expand the archive
+	if err := archiver.Unarchive(archivePath, expandedDirPath); err == nil {
+		return nil
+	}
+	if filepath.Ext(archivePath) == ".zip" {
+		if err := archiver.NewZip().Unarchive(archivePath, expandedDirPath); err != nil {
+			log.Error(err)
+			return err
+		}
+		return nil
+	}
+	if filepath.Ext(archivePath) == ".tar" {
+		if err := archiver.NewTar().Unarchive(archivePath, expandedDirPath); err != nil {
+			log.Error(err)
+			return err
+		}
+		return nil
+	}
+	if filepath.Ext(archivePath) == ".tgz" || strings.HasSuffix(archivePath, ".tar.gz") {
+		if err := archiver.NewTarGz().Unarchive(archivePath, expandedDirPath); err != nil {
+			log.Error(err)
+			return err
+		}
+		return nil
+	}
+	return fmt.Errorf("failed to expand the uploaded archive %s . Please use one of the supported formats %+v", filename, validArchiveExts)
 }
 
 // DeleteAsset deletes an application asset
-func (a *FileSystem) DeleteAsset(appName string, asset string) error {
-	files, err := filepath.Glob(filepath.Join(appName, assetsDirectory, archivesDirectory, asset) + ".*")
+func (a *FileSystem) DeleteAsset(appName string, asset string, isCustomization bool) error {
+	archiveName, expandedDirName, err := NormalizeAssetName(asset)
 	if err != nil {
-		log.Errorf("Cannot get files to delete : %s", err)
+		return fmt.Errorf("failed to normalize the asset filename %s . Error: %q", asset, err)
+	}
+	archivePath := filepath.Join(appName, assetsDirectory, archivesDirectory, srcDirectory, archiveName)
+	if isCustomization {
+		archivePath = filepath.Join(appName, assetsDirectory, archivesDirectory, customizationsDirectory, archiveName)
+	}
+	if _, err := os.Stat(archivePath); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("the asset %s does not exist at path %s", asset, archivePath)
+		}
+		return fmt.Errorf("error occurred while tring to check if the asset %s exists at the path %s . Error: %q", asset, archivePath, err)
+	}
+	if err := os.Remove(archivePath); err != nil {
+		log.Errorf("failed to delete the archive file at path %s . Error %q", archivePath, err)
 		return err
 	}
-	for _, f := range files {
-		if err := os.Remove(f); err != nil {
-			log.Errorf("Cannot delete file: %s", err)
-			return err
-		}
+	expandedDirPath := filepath.Join(appName, assetsDirectory, expandedDirectory, srcDirectory, expandedDirName)
+	if isCustomization {
+		expandedDirPath = filepath.Join(appName, assetsDirectory, expandedDirectory, customizationsDirectory, expandedDirName)
 	}
-	os.RemoveAll(filepath.Join(appName, assetsDirectory, srcDirectory, asset))
-	if err != nil {
-		log.Errorf("Cannot delete files : %s", err)
+	if err := os.RemoveAll(expandedDirPath); err != nil {
+		log.Errorf("failed to delete the directory at path %s . Error: %q", expandedDirPath, err)
 		return err
 	}
 	return nil
 }
 
 // GetAsset returns an application asset
-func (a *FileSystem) GetAsset(appName string, asset string) (file io.Reader, filename string) {
-	files, err := filepath.Glob(filepath.Join(appName, assetsDirectory, archivesDirectory, asset) + ".*")
-	if err != nil || len(files) == 0 {
-		log.Errorf("Cannot open file to write : %s", err)
-		return nil, ""
-	}
-	f, err := os.Open(files[0])
+func (a *FileSystem) GetAsset(appName string, asset string, isCustomization bool) (file io.Reader, filename string, err error) {
+	archiveName, _, err := NormalizeAssetName(asset)
 	if err != nil {
-		log.Errorf("Cannot get file: %s", err)
-		return nil, ""
+		return nil, "", fmt.Errorf("failed to normalize the asset filename %s . Error: %q", asset, err)
 	}
-	return f, filepath.Base(files[0])
+	archivePath := filepath.Join(appName, assetsDirectory, archivesDirectory, srcDirectory, archiveName)
+	if isCustomization {
+		archivePath = filepath.Join(appName, assetsDirectory, archivesDirectory, customizationsDirectory, archiveName)
+	}
+	if _, err := os.Stat(archivePath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, "", fmt.Errorf("the asset %s does not exist at path %s", asset, archivePath)
+		}
+		return nil, "", fmt.Errorf("error occurred while tring to check if the asset %s exists at the path %s . Error: %q", asset, archivePath, err)
+	}
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to open the file at path %s . Error: %q", archivePath, err)
+	}
+	return f, filepath.Base(archivePath), nil
 }
 
 // GetAssetsList returns application asset list
-func (a *FileSystem) GetAssetsList(appName string) (assets []string) {
-	assets = []string{}
-	files, err := ioutil.ReadDir(filepath.Join(appName, assetsDirectory, srcDirectory))
+func (a *FileSystem) GetAssetsList(appName string, isCustomization bool) (assets []string, err error) {
+	archDir := filepath.Join(appName, assetsDirectory, archivesDirectory, srcDirectory)
+	if isCustomization {
+		archDir = filepath.Join(appName, assetsDirectory, archivesDirectory, customizationsDirectory)
+	}
+	files, err := ioutil.ReadDir(archDir)
 	if err != nil {
-		log.Debug("Could not read applications.")
-		return assets
+		return nil, fmt.Errorf("failed to read the directory at path %s containing the assets for the app %s . Error: %q", archDir, appName, err)
 	}
-
+	assets = []string{}
 	for _, f := range files {
-		if f.IsDir() && !strings.Contains(f.Name(), ".") {
-			assets = append(assets, filepath.Base(f.Name()))
-		}
+		assets = append(assets, f.Name())
 	}
-	return assets
+	return assets, nil
 }
 
 // GetSupportInfo returns information useful for debugging.
@@ -401,7 +486,7 @@ func (a *FileSystem) UpdatePlan(appName string, plan string) error {
 	log.Infof("Updating plan of %s", appName)
 	planfilepath := filepath.Join(appName, m2kplanfilename)
 	os.Remove(planfilepath)
-	err := ioutil.WriteFile(planfilepath, []byte(plan), 0777)
+	err := ioutil.WriteFile(planfilepath, []byte(plan), defaultFilePermissions)
 	if err != nil {
 		log.Errorf("Cannot open file to write : %s", err)
 		return err
@@ -437,8 +522,8 @@ func (a *FileSystem) DeletePlan(appName string) error {
 func (a *FileSystem) Transform(appName, artifactName, plan string, debugMode bool) error {
 	log.Infof("About to start transformation of application %s", appName)
 
-	artifactpath := filepath.Join(appName, artifactsDirectoryName, artifactName)
-	err := os.MkdirAll(artifactpath, 0777)
+	artifactpath := filepath.Join(appName, artifactsDirectory, artifactName)
+	err := os.MkdirAll(artifactpath, defaultDirectoryPermissions)
 	if err != nil {
 		log.Error(err)
 		return err
@@ -446,19 +531,18 @@ func (a *FileSystem) Transform(appName, artifactName, plan string, debugMode boo
 	if plan != "" {
 		plan = strings.Replace(plan, "rootDir: assets/src/", "rootDir: ../../assets/src/", 1)
 		planfilepath := filepath.Join(artifactpath, m2kplanfilename)
-		err := ioutil.WriteFile(planfilepath, []byte(plan), 0777)
-		if err != nil {
-			log.Errorf("Cannot open file to write : %s", err)
+		if err := ioutil.WriteFile(planfilepath, []byte(plan), defaultFilePermissions); err != nil {
+			log.Errorf("failed to write the plan file at path %s . Error: %q", planfilepath, err)
 			return err
 		}
 	}
 
-	artifactfilepath := filepath.Join(appName, artifactsDirectoryName, artifactName, appName+".zip")
+	artifactfilepath := filepath.Join(appName, artifactsDirectory, artifactName, appName+".zip")
 	if _, err := os.Stat(artifactfilepath); !os.IsNotExist(err) {
 		return nil
 	}
 
-	m2kqaservermetadatapath := filepath.Join(appName, artifactsDirectoryName, artifactName, m2kQAServerMetadataFile)
+	m2kqaservermetadatapath := filepath.Join(appName, artifactsDirectory, artifactName, m2kQAServerMetadataFile)
 	if _, err := os.Stat(m2kqaservermetadatapath); !os.IsNotExist(err) {
 		metadatayaml := types.AppMetadata{}
 		err = ReadYaml(m2kqaservermetadatapath, &metadatayaml)
@@ -505,11 +589,12 @@ func runTransform(appName string, artifactpath string, artifactName string, tran
 	if err != nil {
 		log.Warnf("Unable to get a free port : %s", err)
 	}
+	customizationsDirPath := filepath.Join(appName, assetsDirectory, customizationsDirectory)
 	var cmd *exec.Cmd
 	if Verbose || debugMode {
-		cmd = exec.Command("move2kube", "transform", "--qadisablecli", "--verbose", "--qaport="+port, "--config="+filepath.Join(artifactpath, "m2kconfig.yaml"), "--source=../../assets/src/")
+		cmd = exec.Command("move2kube", "transform", "--qadisablecli", "--customizations="+customizationsDirPath, "--verbose", "--qaport="+port, "--config="+filepath.Join(artifactpath, "m2kconfig.yaml"), "--source=../../assets/src/")
 	} else {
-		cmd = exec.Command("move2kube", "transform", "--qadisablecli", "--qaport="+port, "--config="+filepath.Join(artifactpath, "m2kconfig.yaml"), "--source=../../assets/src/")
+		cmd = exec.Command("move2kube", "transform", "--qadisablecli", "--customizations="+customizationsDirPath, "--qaport="+port, "--config="+filepath.Join(artifactpath, "m2kconfig.yaml"), "--source=../../assets/src/")
 	}
 	cmd.Dir = artifactpath
 
@@ -604,8 +689,8 @@ func generateVerboseLogs(message string) {
 
 // GetTargetArtifacts returns the target artifacts for an application
 func (a *FileSystem) GetTargetArtifacts(appName string, artifact string) (file io.Reader, filename string) {
-	artifactpath := filepath.Join(appName, artifactsDirectoryName, artifact, appName+".zip")
-	m2kqaservermetadatapath := filepath.Join(appName, artifactsDirectoryName, artifact, m2kQAServerMetadataFile)
+	artifactpath := filepath.Join(appName, artifactsDirectory, artifact, appName+".zip")
+	m2kqaservermetadatapath := filepath.Join(appName, artifactsDirectory, artifact, m2kQAServerMetadataFile)
 	f, err := os.Open(artifactpath)
 	if err != nil {
 		log.Error(err)
@@ -620,7 +705,7 @@ func (a *FileSystem) GetTargetArtifacts(appName string, artifact string) (file i
 // GetTargetArtifactsList returns the list of target artifacts for an application
 func (a *FileSystem) GetTargetArtifactsList(appName string) (artifacts []string) {
 	artifacts = []string{}
-	files, err := ioutil.ReadDir(filepath.Join(appName, artifactsDirectoryName))
+	files, err := ioutil.ReadDir(filepath.Join(appName, artifactsDirectory))
 	if err != nil {
 		log.Debug("Could not read applications.")
 		return artifacts
@@ -636,7 +721,7 @@ func (a *FileSystem) GetTargetArtifactsList(appName string) (artifacts []string)
 
 // DeleteTargetArtifacts deletes target artifacts of an application
 func (a *FileSystem) DeleteTargetArtifacts(appName string, artifacts string) error {
-	err := os.RemoveAll(filepath.Join(appName, artifactsDirectoryName, artifacts))
+	err := os.RemoveAll(filepath.Join(appName, artifactsDirectory, artifacts))
 	if err != nil {
 		log.Errorf("Cannot delete file: %s", err)
 		return err
@@ -647,7 +732,7 @@ func (a *FileSystem) DeleteTargetArtifacts(appName string, artifacts string) err
 // GetQuestion returns the current question for application which is in transformation phase
 func (a *FileSystem) GetQuestion(appName string, artifact string) (problem string, err error) {
 	log.Infof("Getting question %s for %s", appName, artifact)
-	artifactpath := filepath.Join(appName, artifactsDirectoryName, artifact)
+	artifactpath := filepath.Join(appName, artifactsDirectory, artifact)
 	m2kqaservermetadatapath := filepath.Join(artifactpath, m2kQAServerMetadataFile)
 	metadatayaml := types.AppMetadata{}
 	err = ReadYaml(m2kqaservermetadatapath, &metadatayaml)
@@ -694,7 +779,7 @@ func (a *FileSystem) GetQuestion(appName string, artifact string) (problem strin
 
 // PostSolution posts the solution for the current question
 func (a *FileSystem) PostSolution(appName string, artifact string, solution string) error {
-	artifactpath := filepath.Join(appName, artifactsDirectoryName, artifact)
+	artifactpath := filepath.Join(appName, artifactsDirectory, artifact)
 	m2kqaservermetadatapath := filepath.Join(artifactpath, m2kQAServerMetadataFile)
 	metadatayaml := types.AppMetadata{}
 	err := ReadYaml(m2kqaservermetadatapath, &metadatayaml)
@@ -739,7 +824,7 @@ func (a *FileSystem) PostSolution(appName string, artifact string, solution stri
 }
 
 // NewFileSystem returns a new IApplication object which manages an application in a filesystem
-func NewFileSystem() IApplication {
+func NewFileSystem() *FileSystem {
 	fileSystem := &FileSystem{}
 	applications := fileSystem.GetApplications()
 	for _, application := range applications {
@@ -887,4 +972,70 @@ func syncLoggingLevel(loggingLevel, message string) {
 	default:
 		log.Info(message)
 	}
+}
+
+// putM2KIgnore writes a .m2kignore file to a directory that ignores the contents of that directory.
+// NOTE: It will not ignore subdirectories. if the directory does not exist it will be created.
+func putM2KIgnore(path string) error {
+	if err := os.MkdirAll(path, defaultDirectoryPermissions); err != nil {
+		return fmt.Errorf("failed to create a directory at the path %s . Error: %q", path, err)
+	}
+	m2kIgnorePath := filepath.Join(path, ".m2kignore")
+	if err := ioutil.WriteFile(m2kIgnorePath, []byte("."), defaultFilePermissions); err != nil {
+		return fmt.Errorf("failed to write a .m2kingore file to the path %s . Error: %q", m2kIgnorePath, err)
+	}
+	return nil
+}
+
+// MakeFileNameCompliant returns a DNS-1123 standard string
+// Motivated by https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
+// Also see page 1 "ASSUMPTIONS" heading of https://tools.ietf.org/html/rfc952
+// Also see page 13 of https://tools.ietf.org/html/rfc1123#page-13
+func MakeFileNameCompliant(name string) string {
+	if len(name) == 0 {
+		log.Error("The input name is empty.")
+		return ""
+	}
+	baseName := filepath.Base(name)
+	invalidChars := regexp.MustCompile("[^a-zA-Z0-9-.]+")
+	processedName := invalidChars.ReplaceAllLiteralString(baseName, "-")
+	if len(processedName) > 63 {
+		log.Debugf("Warning: The processed name %q is longer than 63 characters long.", processedName)
+	}
+	first := processedName[0]
+	last := processedName[len(processedName)-1]
+	if first == '-' || first == '.' || last == '-' || last == '.' {
+		log.Debugf("Warning: The first and/or last characters of the name %q are not alphanumeric.", processedName)
+	}
+	return processedName
+}
+
+// NormalizeAssetName normalizes the asset filename removing invalid characters, etc.
+// It also returns the filename without the extension so it can be used as the name for the directory after expansion.
+func NormalizeAssetName(filename string) (archiveName string, expandedDirName string, err error) {
+	assetName := filepath.Base(filepath.Clean(filename))
+	if assetName == "." || assetName == string(os.PathSeparator) {
+		return "", "", fmt.Errorf("the asset filename `%s` is invalid", filename)
+	}
+	assetName = MakeFileNameCompliant(assetName)
+	ext := filepath.Ext(assetName)
+	if !IsStringPresent(validArchiveExts, ext) || (ext == ".gz" && !strings.HasSuffix(assetName, ".tar.gz")) {
+		return "", "", fmt.Errorf("the archive format %s is not supported. Please use one of %+v when uploading", ext, validArchiveExts)
+	}
+	if ext == ".gz" {
+		base := strings.TrimSuffix(assetName, ".tar.gz")
+		return assetName, base, nil
+	}
+	base := strings.TrimSuffix(assetName, ext)
+	return assetName, base, nil
+}
+
+// IsStringPresent checks if a value is present in a slice
+func IsStringPresent(list []string, value string) bool {
+	for _, val := range list {
+		if strings.EqualFold(val, value) {
+			return true
+		}
+	}
+	return false
 }
