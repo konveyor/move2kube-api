@@ -22,7 +22,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -135,20 +134,25 @@ func getAssetsList(w http.ResponseWriter, r *http.Request, isCustomization bool)
 	name := mux.Vars(r)["name"]
 	assets, err := m2kapp.GetAssetsList(name, isCustomization)
 	if err != nil || assets == nil {
-		log.Errorf("Could not get the assets for the app %s . Error: %q", name, err)
+		log.Errorf("Could not get the assets/customizations for the app %s . Error: %q", name, err)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(assets); err != nil {
-		log.Errorf("Error while getting assets list : %s", err)
+		log.Errorf("failed to marhsal the assets/customizations list %+v to json. Error: %q", assets, err)
 	}
 }
 
 func getAsset(w http.ResponseWriter, r *http.Request, isCustomization bool) {
 	name := mux.Vars(r)["name"]
-	asset := mux.Vars(r)["asset"]
+	asset := ""
+	if isCustomization {
+		asset = mux.Vars(r)["customization"]
+	} else {
+		asset = mux.Vars(r)["asset"]
+	}
 	file, filename, err := m2kapp.GetAsset(name, asset, isCustomization)
 	if err != nil || file == nil {
 		log.Errorf("Could not get asset %s for the app %s . Error: %q", asset, name, err)
@@ -159,13 +163,18 @@ func getAsset(w http.ResponseWriter, r *http.Request, isCustomization bool) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
 	if _, err := io.Copy(w, file); err != nil {
-		log.Errorf("Error while getting asset : %s", err)
+		log.Errorf("failed to send the asset/customization to the client. Error: %q", err)
 	}
 }
 
 func deleteAsset(w http.ResponseWriter, r *http.Request, isCustomization bool) {
 	name := mux.Vars(r)["name"]
-	asset := mux.Vars(r)["asset"]
+	asset := ""
+	if isCustomization {
+		asset = mux.Vars(r)["customization"]
+	} else {
+		asset = mux.Vars(r)["asset"]
+	}
 	if err := m2kapp.DeleteAsset(name, asset, isCustomization); err != nil {
 		log.Errorf("Could not delete asset : %s", err)
 		w.WriteHeader(http.StatusNotFound)
@@ -180,26 +189,34 @@ func generateTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	plan := r.FormValue("plan")
 
-	t := time.Now()
-	artifactName := name + "_" + strconv.FormatInt(t.Unix(), 10)
+	artifactName := name + "-" + cast.ToString(time.Now().Unix())
 	log.Infof("Artifact Name:%s", artifactName)
 
 	keys, ok := r.URL.Query()["debug"]
 	var debugFlag bool
-	if !ok || len(keys[0]) < 1 {
+	if !ok || len(keys[0]) == 0 {
 		log.Debugf("Query parameter debug : false")
 	} else {
-		debugFlag, _ = strconv.ParseBool(keys[0])
-		log.Debugf("Query parameter debug : %t", debugFlag)
+		var err error
+		debugFlag, err = cast.ToBoolE(keys[0])
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			bodyBytes, err := json.Marshal(map[string]string{"error": "the debug parameter must be boolean"})
+			if err != nil {
+				log.Error(err)
+				return
+			}
+			w.Write(bodyBytes)
+		}
+		log.Debugf("Query parameter debug : %v", debugFlag)
 	}
-	err := m2kapp.Transform(name, artifactName, plan, debugFlag)
-	if err != nil {
+	if err := m2kapp.Transform(name, artifactName, plan, debugFlag); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = io.WriteString(w, "Could not start transformation : "+err.Error())
-	} else {
-		w.WriteHeader(http.StatusAccepted)
-		_, _ = io.WriteString(w, artifactName)
+		return
 	}
+	w.WriteHeader(http.StatusAccepted)
+	_, _ = io.WriteString(w, artifactName)
 }
 
 func getTargetArtifacts(w http.ResponseWriter, r *http.Request) {
@@ -260,23 +277,31 @@ func deleteTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 
 func startPlan(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
-
 	keys, ok := r.URL.Query()["debug"]
 	var debugFlag bool
-	if !ok || len(keys[0]) < 1 {
+	if !ok || len(keys[0]) == 0 {
 		log.Infof("Query parameter debug : false")
 	} else {
-		debugFlag, _ = strconv.ParseBool(keys[0])
-		log.Infof("Query parameter debug : %t", debugFlag)
+		var err error
+		debugFlag, err = cast.ToBoolE(keys[0])
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			bodyBytes, err := json.Marshal(map[string]string{"error": "the debug parameter must be boolean"})
+			if err != nil {
+				log.Error(err)
+				return
+			}
+			w.Write(bodyBytes)
+		}
+		log.Infof("Query parameter debug : %v", debugFlag)
 	}
-	err := m2kapp.GeneratePlan(name, debugFlag)
-	if err != nil {
+	if err := m2kapp.GeneratePlan(name, debugFlag); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = io.WriteString(w, "Could not start plan : "+err.Error())
-	} else {
-		w.WriteHeader(http.StatusAccepted)
-		_, _ = io.WriteString(w, "Planning started!")
+		return
 	}
+	w.WriteHeader(http.StatusAccepted)
+	_, _ = io.WriteString(w, "Planning started!")
 }
 
 func updatePlan(w http.ResponseWriter, r *http.Request) {
@@ -408,7 +433,6 @@ func Serve(port int) {
 	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifacts}/problems/current", getQuestion).Methods("GET")
 	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifacts}/problems/current/solution", postSolution).Methods("POST")
 
-	portstr := cast.ToString(port)
-	log.Infof("Starting Move2Kube api server at :%d", port)
-	log.Fatal(http.ListenAndServe(":"+portstr, router))
+	log.Infof("Starting Move2Kube API server at port: %d", port)
+	log.Fatal(http.ListenAndServe(":"+cast.ToString(port), router))
 }

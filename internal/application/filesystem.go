@@ -29,7 +29,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -38,6 +37,7 @@ import (
 	archiver "github.com/mholt/archiver/v3"
 	"github.com/phayes/freeport"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cast"
 	"gopkg.in/yaml.v3"
 )
 
@@ -53,7 +53,6 @@ const (
 	m2kQAServerMetadataFile                 = "." + appNameShort + "qa"
 	m2kPlanOngoingFile                      = "." + appNameShort + "plan"
 	apiServerPort                           = 8080
-	timestampRegex                          = `time="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"`
 	loglevelRegex                           = `level=([a-z]+) `
 	newfilesMetadataFileName                = "newfiles.txt"
 	defaultDirectoryPermissions os.FileMode = 0777
@@ -61,6 +60,7 @@ const (
 )
 
 var (
+	timestampRegex   = regexp.MustCompile(`time="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"`)
 	validArchiveExts = []string{".zip", ".tar", ".tgz", ".gz"}
 )
 
@@ -135,7 +135,7 @@ func (a *FileSystem) Download() (file io.Reader, filename string) {
 // NewApplication creates a new application in the filesystem
 func (a *FileSystem) NewApplication(application Application) error {
 	log.Infof("Creating application : %s", application.Name)
-	if _, err := os.Stat(application.Name); !os.IsNotExist(err) {
+	if _, err := os.Stat(application.Name); err == nil {
 		err := fmt.Errorf("the application %s already exists", application.Name)
 		log.Error(err)
 		return err
@@ -148,30 +148,33 @@ func (a *FileSystem) NewApplication(application Application) error {
 }
 
 // GetApplication returns the metadata about an application
-func (a *FileSystem) GetApplication(name string) (Application, error) {
-	app := Application{Name: name}
-	_, err := os.Stat(name)
-	if os.IsNotExist(err) {
-		err := fmt.Errorf("the application %s does not exist", name)
+func (a *FileSystem) GetApplication(appName string) (Application, error) {
+	normalizedAppName, err := normalizeAppName(appName)
+	if err != nil {
+		return Application{}, err
+	}
+	app := Application{Name: appName}
+	if _, err := os.Stat(normalizedAppName); os.IsNotExist(err) {
+		err := fmt.Errorf("the application %s does not exist. Error: %q", normalizedAppName, err)
 		log.Error(err)
 		return app, err
 	}
 	status := []ApplicationStatus{}
 	//Checks for contents too if the dir exists
-	if exists, _ := doesPathExist(filepath.Join(name, assetsDirectory)); exists {
+	if exists, _ := doesPathExist(filepath.Join(normalizedAppName, assetsDirectory)); exists {
 		status = append(status, ApplicationStatusAssets)
 	}
-	if exists, _ := doesPathExist(filepath.Join(name, artifactsDirectory)); exists {
+	if exists, _ := doesPathExist(filepath.Join(normalizedAppName, artifactsDirectory)); exists {
 		status = append(status, ApplicationStatusArtifacts)
 	}
-	if exists, _ := doesPathExist(filepath.Join(name, assetsDirectory, expandedDirectory, "m2k.plan")); exists {
+	if exists, _ := doesPathExist(filepath.Join(normalizedAppName, "m2k.plan")); exists {
 		status = append(status, ApplicationStatusPlan)
 	}
-	if exists, _ := doesPathExist(filepath.Join(name, m2kPlanOngoingFile+".*")); exists {
+	if exists, _ := doesPathExist(filepath.Join(normalizedAppName, m2kPlanOngoingFile+".*")); exists {
 		status = append(status, ApplicationStatusPlanning)
 	}
 	app.Status = status
-	log.Debugf("Application : %+v", app)
+	log.Debugf("GetApplication app: %+v", app)
 	return app, nil
 }
 
@@ -180,13 +183,13 @@ func (a *FileSystem) GetApplications() []Application {
 	applications := []Application{}
 	files, err := ioutil.ReadDir("./")
 	if err != nil {
-		log.Debugf("Could not read applications.")
+		log.Debugf("Could not read applications. Error: %q", err)
 		return applications
 	}
-
 	for _, f := range files {
-		if f.IsDir() && !strings.Contains(f.Name(), ".") && !strings.Contains(f.Name(), "+") {
-			app, err := a.GetApplication(f.Name())
+		name := f.Name()
+		if f.IsDir() && !strings.Contains(name, ".") && !strings.Contains(name, "+") {
+			app, err := a.GetApplication(name)
 			if err == nil {
 				applications = append(applications, app)
 			}
@@ -196,8 +199,15 @@ func (a *FileSystem) GetApplications() []Application {
 }
 
 // DeleteApplication deletes an application from the filesysem
-func (a *FileSystem) DeleteApplication(name string) error {
-	return os.RemoveAll(name)
+func (a *FileSystem) DeleteApplication(appName string) error {
+	normalizedAppName, err := normalizeAppName(appName)
+	if err != nil {
+		return fmt.Errorf("failed to normalize the app name `%s` . Error: %q", appName, err)
+	}
+	if _, err := a.GetApplication(normalizedAppName); err != nil {
+		return fmt.Errorf("failed to get the app `%s` . Error: %q", normalizedAppName, err)
+	}
+	return os.RemoveAll(normalizedAppName)
 }
 
 // UploadAsset uploads an asset into the filesystem
@@ -386,52 +396,67 @@ func (*FileSystem) GetSupportInfo() map[string]string {
 
 // GeneratePlan starts generation of plan of an application
 func (a *FileSystem) GeneratePlan(appName string, debugMode bool) error {
-	log.Infof("About to start planning application %s", appName)
-	go runPlan(appName, debugMode)
-	log.Infof("Planning started for application %s", appName)
+	normalizedAppName, err := normalizeAppName(appName)
+	if err != nil {
+		return fmt.Errorf("failed to normalize the app name `%s` Error: %q", appName, err)
+	}
+	log.Infof("About to start planning application %s", normalizedAppName)
+	go runPlan(normalizedAppName, debugMode)
+	log.Infof("Planning started for application %s", normalizedAppName)
 	return nil
 }
 
-func runPlan(appName string, debugMode bool) bool {
-	log.Infof("Starting plan for %s", appName)
+func runPlan(appName string, debugMode bool) error {
+	log.Infof("Starting plan for app %s", appName)
 
-	planid := strconv.Itoa(rand.Intn(100))
-	m2kplanongoing := filepath.Join(appName, m2kPlanOngoingFile+"."+planid)
-	emptyFile, err := os.Create(m2kplanongoing)
+	planid := cast.ToString(rand.Intn(100))
+	m2kPlanOnGoing := filepath.Join(appName, m2kPlanOngoingFile+"."+planid)
+	emptyFile, err := os.Create(m2kPlanOnGoing)
 	if err != nil {
 		log.Warn(err)
 	}
-	emptyFile.Close()
-
-	srcDirectoryPath := filepath.Join(assetsDirectory, srcDirectory)
-	var cmd *exec.Cmd
-
-	if Verbose || debugMode {
-		cmd = exec.Command("move2kube", "plan", "--verbose", "-s", srcDirectoryPath, "-n", appName)
-	} else {
-		cmd = exec.Command("move2kube", "plan", "-s", srcDirectoryPath, "-n", appName)
+	if err := emptyFile.Close(); err != nil {
+		log.Warn(err)
 	}
-	cmd.Dir = appName
 
-	var wg sync.WaitGroup
+	pwd, err := os.Getwd()
+	if err != nil {
+		log.Errorf("failed to get the current working directory. Error: %q", err)
+		return err
+	}
+	srcPath := filepath.Join(pwd, appName, assetsDirectory, expandedDirectory, srcDirectory)
+	custPath := filepath.Join(pwd, appName, assetsDirectory, expandedDirectory, customizationsDirectory)
+
+	cmdArgs := []string{"plan", "--name", appName, "--source", srcPath}
+	if Verbose || debugMode {
+		cmdArgs = append(cmdArgs, "--verbose")
+	}
+	if _, err := os.Stat(custPath); err == nil {
+		cmdArgs = append(cmdArgs, "--customizations", custPath)
+	}
+	log.Infof("plan cmdArgs: %+v", cmdArgs)
+	cmd := exec.Command("move2kube", cmdArgs...)
+	cmd.Dir = appName
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		log.Errorf("RunCommand: cmd.StdoutPipe(): %v", err)
-		return false
+		log.Errorf("failed to get the stdout pipe for the plan command. Error: %q", err)
+		return err
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		log.Errorf("RunCommand: cmd.StderrPipe(): %v", err)
-		return false
+		log.Errorf("failed to get the stderr pipe for the plan command. Error: %q", err)
+		return err
 	}
 
 	if err := cmd.Start(); err != nil {
-		log.Errorf("RunCommand: cmd.Start(): %v", err)
-		return false
+		log.Errorf("failed to start the plan command. Error: %q", err)
+		return err
 	}
 
-	outch := make(chan string, 10)
+	outCh := make(chan string, 10)
+
+	var wg sync.WaitGroup
 
 	scannerStdout := bufio.NewScanner(stdout)
 	scannerStdout.Split(bufio.ScanLines)
@@ -439,45 +464,51 @@ func runPlan(appName string, debugMode bool) bool {
 	go func() {
 		for scannerStdout.Scan() {
 			text := scannerStdout.Text()
-			var re = regexp.MustCompile(timestampRegex)
-			replacementString := "App name: " + appName + ";"
-			updatedText := re.ReplaceAllString(text, replacementString)
-			if strings.TrimSpace(text) != "" {
-				outch <- updatedText
+			updatedText := strings.TrimSpace(timestampRegex.ReplaceAllString(text, "App name: "+appName+";"))
+			if updatedText != "" {
+				outCh <- updatedText
 			}
+		}
+		if err := scannerStdout.Err(); err != nil {
+			log.Errorf("error occurred while fetching the output (stdout) of move2kube plan. Error: %q", err)
 		}
 		wg.Done()
 	}()
+
 	scannerStderr := bufio.NewScanner(stderr)
 	scannerStderr.Split(bufio.ScanLines)
 	wg.Add(1)
 	go func() {
 		for scannerStderr.Scan() {
 			text := scannerStderr.Text()
-			var re = regexp.MustCompile(timestampRegex)
-			replacementString := "App name: " + appName + ";"
-			updatedText := re.ReplaceAllString(text, replacementString)
-			if strings.TrimSpace(text) != "" {
-				outch <- updatedText
+			updatedText := strings.TrimSpace(timestampRegex.ReplaceAllString(text, "App name: "+appName+";"))
+			if updatedText != "" {
+				outCh <- updatedText
 			}
+		}
+		if err := scannerStderr.Err(); err != nil {
+			log.Errorf("error occurred while fetching the stderr of move2kube plan. Error: %q", err)
 		}
 		wg.Done()
 	}()
 
 	go func() {
 		wg.Wait()
-		close(outch)
+		close(outCh)
 	}()
 
-	for t := range outch {
+	for t := range outCh {
 		if Verbose {
 			generateVerboseLogs(t)
 		} else {
 			log.Info(t)
 		}
 	}
-	os.Remove(m2kplanongoing)
-	return true
+	if err := os.Remove(m2kPlanOnGoing); err != nil {
+		log.Errorf("failed to remove the lock file for plan generation at path %s . Error: %q", m2kPlanOnGoing, err)
+		return err
+	}
+	return nil
 }
 
 // UpdatePlan updates the plan file for an application
@@ -519,112 +550,148 @@ func (a *FileSystem) DeletePlan(appName string) error {
 
 // Transform starts the transformation phase for an application
 func (a *FileSystem) Transform(appName, artifactName, plan string, debugMode bool) error {
-	log.Infof("About to start transformation of application %s", appName)
-
-	artifactpath := filepath.Join(appName, artifactsDirectory, artifactName)
-	err := os.MkdirAll(artifactpath, defaultDirectoryPermissions)
+	normalizedAppName, err := normalizeAppName(appName)
 	if err != nil {
+		return err
+	}
+	pwd, err := os.Getwd()
+	if err != nil {
+		log.Errorf("failed to get the current working directory. Error: %q", err)
+		return err
+	}
+
+	log.Infof("About to start transformation of application %s", normalizedAppName)
+	currentRunDir := filepath.Join(pwd, normalizedAppName, artifactsDirectory, artifactName)
+	if err := os.MkdirAll(currentRunDir, defaultDirectoryPermissions); err != nil {
 		log.Error(err)
 		return err
 	}
 	if plan != "" {
 		plan = strings.Replace(plan, "rootDir: assets/src/", "rootDir: ../../assets/src/", 1)
-		planfilepath := filepath.Join(artifactpath, m2kplanfilename)
+		planfilepath := filepath.Join(currentRunDir, m2kplanfilename)
 		if err := ioutil.WriteFile(planfilepath, []byte(plan), defaultFilePermissions); err != nil {
 			log.Errorf("failed to write the plan file at path %s . Error: %q", planfilepath, err)
 			return err
 		}
 	}
 
-	artifactfilepath := filepath.Join(appName, artifactsDirectory, artifactName, appName+".zip")
-	if _, err := os.Stat(artifactfilepath); !os.IsNotExist(err) {
+	outputZipPath := filepath.Join(currentRunDir, normalizedAppName+".zip")
+	if _, err := os.Stat(outputZipPath); !os.IsNotExist(err) {
 		return nil
 	}
 
-	m2kqaservermetadatapath := filepath.Join(appName, artifactsDirectory, artifactName, m2kQAServerMetadataFile)
-	if _, err := os.Stat(m2kqaservermetadatapath); !os.IsNotExist(err) {
+	// This file contains the metadata about a run (host and port of the QA engine's http server, etc.)
+	m2kQAServerMetadataFilePath := filepath.Join(currentRunDir, m2kQAServerMetadataFile)
+	if _, err := os.Stat(m2kQAServerMetadataFilePath); !os.IsNotExist(err) {
+		// resuming a previous run
 		metadatayaml := types.AppMetadata{}
-		err = ReadYaml(m2kqaservermetadatapath, &metadatayaml)
-		if err != nil || metadatayaml.Node != getDNSHostName() {
+		if err := ReadYaml(m2kQAServerMetadataFilePath, &metadatayaml); err != nil {
+			return err
+		}
+		if metadatayaml.Node != getDNSHostName() {
 			return nil
 		}
 		if !debugMode {
-			if metadatayaml.Debug == "true" {
-				debugMode = true
-			}
+			debugMode = metadatayaml.Debug
 		}
 	}
 
-	log.Infof("Debug level: %t", debugMode)
-	transformch := make(chan string, 10)
-	go runTransform(appName, artifactpath, artifactName, transformch, debugMode)
-	log.Infof("Waiting for QA engine to start for app %s", appName)
-	port := <-transformch
-	appmetadata := types.AppMetadata{}
-	appmetadata.URL = "http://localhost:" + port
-	appmetadata.Node = getDNSHostName()
-	appmetadata.Debug = strconv.FormatBool(debugMode)
-	if appmetadata.Node == "" {
-		appmetadata.Node = "localhost"
+	log.Infof("debugMode: %v", debugMode)
+	transformCh := make(chan string, 10)
+	go runTransform(normalizedAppName, currentRunDir, artifactName, transformCh, debugMode)
+	log.Infof("Waiting for QA engine to start for the app %s", normalizedAppName)
+	portStr := <-transformCh
+	appMetadata := types.AppMetadata{URL: "http://localhost:" + portStr, Node: getDNSHostName(), Debug: debugMode}
+	if appMetadata.Node == "" {
+		appMetadata.Node = "localhost"
 	}
-	log.Infof("Setting hostname as %s", appmetadata.Node)
-	log.Infof("QA engine to started for app %s at %s", appName, appmetadata.URL)
+	log.Infof("Setting hostname as %s", appMetadata.Node)
+	log.Infof("QA engine has started for the app %s at url %s", normalizedAppName, appMetadata.URL)
 
-	err = WriteYaml(m2kqaservermetadatapath, appmetadata)
-	if err != nil {
-		log.Errorf("Cannot open file to write : %s", err)
+	if err := WriteYaml(m2kQAServerMetadataFilePath, appMetadata); err != nil {
+		log.Errorf("failed to write the .m2kqa metadata file at path %s . Error: %q", m2kQAServerMetadataFilePath, err)
 		return err
 	}
 
-	log.Infof("Transformation started for application %s with url %s", appName, appmetadata.URL)
+	log.Infof("Transformation started for application %s with url %s", normalizedAppName, appMetadata.URL)
 	return nil
 }
 
-func runTransform(appName string, artifactpath string, artifactName string, transformch chan string, debugMode bool) bool {
+func runTransform(appName string, currentRunDir string, artifactName string, transformCh chan string, debugMode bool) error {
 	log.Infof("Starting Transform for %s", appName)
 
-	portint, err := freeport.GetFreePort()
-	port := strconv.Itoa(portint)
+	port, err := freeport.GetFreePort()
 	if err != nil {
-		log.Warnf("Unable to get a free port : %s", err)
+		log.Warnf("unable to get a free port. Error: %q", err)
 	}
-	customizationsDirPath := filepath.Join(appName, assetsDirectory, customizationsDirectory)
-	var cmd *exec.Cmd
-	if Verbose || debugMode {
-		cmd = exec.Command("move2kube", "transform", "--qadisablecli", "--customizations="+customizationsDirPath, "--verbose", "--qaport="+port, "--config="+filepath.Join(artifactpath, "m2kconfig.yaml"), "--source=../../assets/src/")
-	} else {
-		cmd = exec.Command("move2kube", "transform", "--qadisablecli", "--customizations="+customizationsDirPath, "--qaport="+port, "--config="+filepath.Join(artifactpath, "m2kconfig.yaml"), "--source=../../assets/src/")
-	}
-	cmd.Dir = artifactpath
+	portStr := cast.ToString(port)
 
-	var wg sync.WaitGroup
+	pwd, err := os.Getwd()
+	if err != nil {
+		log.Errorf("failed to get the current working directory. Error: %q", err)
+		return err
+	}
+	srcPath := filepath.Join(pwd, appName, assetsDirectory, expandedDirectory, srcDirectory)
+	custPath := filepath.Join(pwd, appName, assetsDirectory, expandedDirectory, customizationsDirectory)
+	outputPath := filepath.Join(currentRunDir, "output")
+
+	currentRunSrcDir := filepath.Join(currentRunDir, srcDirectory)
+	if _, err := os.Stat(currentRunSrcDir); os.IsNotExist(err) {
+		if err := copyDir(srcPath, currentRunSrcDir); err != nil {
+			log.Errorf("failed to copy the source directory for the current run. Error: %q", err)
+			return err
+		}
+	} else {
+		log.Debugf("the source directory has already been copied for the current run")
+	}
+
+	cmdArgs := []string{"transform", "--qadisablecli", "--qaport", portStr, "--config", filepath.Join(currentRunDir, "m2kconfig.yaml"), "--source", currentRunSrcDir, "--output", outputPath}
+	if Verbose || debugMode {
+		cmdArgs = append(cmdArgs, "--verbose")
+	}
+	if _, err := os.Stat(custPath); err == nil {
+		currentRunCustDir := filepath.Join(currentRunDir, customizationsDirectory)
+		if _, err := os.Stat(currentRunCustDir); os.IsNotExist(err) {
+			if err := copyDir(custPath, currentRunCustDir); err != nil {
+				log.Errorf("failed to copy the customizations directory for the current run. Error: %q", err)
+				return err
+			}
+		} else {
+			log.Debugf("the customizations directory has already been copied for the current run")
+		}
+		cmdArgs = append(cmdArgs, "--customizations", currentRunCustDir)
+	}
+	log.Infof("transform cmdArgs: %+v", cmdArgs)
+	cmd := exec.Command("move2kube", cmdArgs...)
+	cmd.Dir = currentRunDir
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		log.Errorf("RunCommand: cmd.StdoutPipe(): %v", err)
-		return false
+		log.Errorf("failed to get the stdout pipe for the plan command. Error: %q", err)
+		return err
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		log.Errorf("RunCommand: cmd.StderrPipe(): %v", err)
-		return false
-	}
-	if err := cmd.Start(); err != nil {
-		log.Errorf("RunCommand: cmd.Start(): %v", err)
-		return false
+		log.Errorf("failed to get the stderr pipe for the plan command. Error: %q", err)
+		return err
 	}
 
-	outch := make(chan string, 10)
+	if err := cmd.Start(); err != nil {
+		log.Errorf("failed to start the transform command. Error: %q", err)
+		return err
+	}
+
+	wg := sync.WaitGroup{}
+	outCh := make(chan string, 10)
 	scannerStdout := bufio.NewScanner(stdout)
 	scannerStdout.Split(bufio.ScanLines)
 	wg.Add(1)
 	go func() {
 		for scannerStdout.Scan() {
 			text := scannerStdout.Text()
-			var re = regexp.MustCompile(timestampRegex)
-			replacementString := "App name: " + appName + "; Artifact name:" + artifactName + ";"
-			updatedText := re.ReplaceAllString(text, replacementString)
-			if strings.TrimSpace(text) != "" {
-				outch <- updatedText
+			updatedText := strings.TrimSpace(timestampRegex.ReplaceAllString(text, "App name: "+appName+"; Artifact name:"+artifactName+";"))
+			if updatedText != "" {
+				outCh <- updatedText
 			}
 		}
 		wg.Done()
@@ -635,11 +702,9 @@ func runTransform(appName string, artifactpath string, artifactName string, tran
 	go func() {
 		for scannerStderr.Scan() {
 			text := scannerStderr.Text()
-			var re = regexp.MustCompile(timestampRegex)
-			replacementString := "App name: " + appName + "; Artifact name:" + artifactName + ";"
-			updatedText := re.ReplaceAllString(text, replacementString)
-			if strings.TrimSpace(text) != "" {
-				outch <- updatedText
+			updatedText := strings.TrimSpace(timestampRegex.ReplaceAllString(text, "App name: "+appName+"; Artifact name:"+artifactName+";"))
+			if updatedText != "" {
+				outCh <- updatedText
 			}
 		}
 		wg.Done()
@@ -647,30 +712,29 @@ func runTransform(appName string, artifactpath string, artifactName string, tran
 
 	go func() {
 		wg.Wait()
-		close(outch)
-		m2kqaservermetadatapath := filepath.Join(artifactpath, m2kQAServerMetadataFile)
-		if err := os.RemoveAll(m2kqaservermetadatapath); err != nil {
-			log.Errorf("Failed to remove the metadata directory at path %s . Error: %q", m2kqaservermetadatapath, err)
+		close(outCh)
+		m2kQAServerMetadataFilePath := filepath.Join(currentRunDir, m2kQAServerMetadataFile)
+		if err := os.RemoveAll(m2kQAServerMetadataFilePath); err != nil {
+			log.Errorf("Failed to remove the metadata directory at path %s . Error: %q", m2kQAServerMetadataFilePath, err)
 		}
-		artifacts := filepath.Join(artifactpath, appName)
-		zipPath := artifacts + ".zip"
-		if err := archiver.NewZip().Archive([]string{artifacts}, zipPath); err != nil {
-			log.Errorf("Failed to create the output zip file at path %s . Error: %q", zipPath, err)
+		zipPath := filepath.Join(currentRunDir, appName+".zip")
+		if err := archiver.NewZip().Archive([]string{outputPath}, zipPath); err != nil {
+			log.Errorf("Failed to create the output zip file at path %s using the output directory at path %s . Error: %q", zipPath, outputPath, err)
 		}
 	}()
 
-	for t := range outch {
-		if strings.Contains(t, port) {
-			transformch <- port
-			close(transformch)
+	for outputLine := range outCh {
+		if strings.Contains(outputLine, portStr) {
+			transformCh <- portStr
+			close(transformCh)
 		}
 		if Verbose {
-			generateVerboseLogs(t)
+			generateVerboseLogs(outputLine)
 		} else {
-			log.Info(t)
+			log.Info(outputLine)
 		}
 	}
-	return true
+	return nil
 }
 
 // generateVerboseLogs synchronizes move2kube-api loggging level wrt move2kube logging level
@@ -759,7 +823,7 @@ func (a *FileSystem) GetQuestion(appName string, artifact string) (problem strin
 		log.Infof(string(body))
 		return string(body), nil
 	}
-	urlstr := "http://" + metadatayaml.Node + ":" + strconv.Itoa(apiServerPort) + "/api/v1/applications/" + appName + "/targetartifacts/" + artifact + "/problems/current"
+	urlstr := "http://" + metadatayaml.Node + ":" + cast.ToString(apiServerPort) + "/api/v1/applications/" + appName + "/targetartifacts/" + artifact + "/problems/current"
 	log.Infof("Getting question from %s", urlstr)
 	resp, err := http.Get(urlstr)
 	if err != nil {
@@ -805,7 +869,7 @@ func (a *FileSystem) PostSolution(appName string, artifact string, solution stri
 		}
 		return nil
 	}
-	urlstr := "http://" + metadatayaml.Node + ":" + strconv.Itoa(apiServerPort) + "/api/v1/applications/" + appName + "/targetartifacts/" + artifact + "/problems/current/solution"
+	urlstr := "http://" + metadatayaml.Node + ":" + cast.ToString(apiServerPort) + "/api/v1/applications/" + appName + "/targetartifacts/" + artifact + "/problems/current/solution"
 	resp, err := http.Post(urlstr, "application/json", bytes.NewBuffer([]byte(solution)))
 	if err != nil {
 		log.Error(err)
@@ -829,9 +893,8 @@ func NewFileSystem() *FileSystem {
 	for _, application := range applications {
 		artifacts := fileSystem.GetTargetArtifactsList(application.Name)
 		for _, artifact := range artifacts {
-			err := fileSystem.Transform(application.Name, artifact, "", false)
-			if err != nil {
-				log.Errorf("Error while starting transform : %s", err)
+			if err := fileSystem.Transform(application.Name, artifact, "", false); err != nil {
+				log.Errorf("error while starting transform. Error: %q", err)
 			}
 		}
 		m2kplanongoing := filepath.Join(application.Name, m2kPlanOngoingFile+".*")
@@ -853,35 +916,31 @@ func doesPathExist(path string) (bool, error) {
 	if strings.HasSuffix(path, ".*") {
 		files, err := filepath.Glob(path)
 		if err != nil {
-			log.Debugf("Cannot get files : %s", err)
-			return false, nil
+			log.Debugf("cannot get files using the pattern %s . Error: %q", path, err)
+			return false, err
 		}
-		log.Debugf("Got files : %s", files)
-		if len(files) > 0 {
-			return true, nil
-		}
-		return false, nil
+		log.Debugf("Got files : %+v", files)
+		return len(files) > 0, nil
 	}
 	fileinfo, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		return false, nil
-	} else if err != nil {
-		return false, err
-	} else {
-		if fileinfo.IsDir() {
-			f, err := os.Open(path)
-			if err != nil {
-				return false, nil
-			}
-			defer f.Close()
-			_, err = f.Readdirnames(1) // Or f.Readdir(1)
-			if err == io.EOF {
-				return false, nil
-			}
-			return true, nil
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
 		}
+		return false, err
+	}
+	if !fileinfo.IsDir() {
 		return true, nil
 	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	if _, err := f.Readdirnames(1); err == io.EOF {
+		return false, nil
+	}
+	return true, nil
 }
 
 // WriteYaml writes an yaml to disk
@@ -1037,4 +1096,17 @@ func IsStringPresent(list []string, value string) bool {
 		}
 	}
 	return false
+}
+
+func normalizeAppName(name string) (string, error) {
+	name = filepath.Base(filepath.Clean(name))
+	if name == "." || name == string(os.PathSeparator) {
+		return name, fmt.Errorf("the name `%s` is not a valid app name", name)
+	}
+	return name, nil
+}
+
+func copyDir(src, dest string) error {
+	cmd := exec.Command("cp", "-r", src, dest)
+	return cmd.Run()
 }

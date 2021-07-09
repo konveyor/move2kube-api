@@ -20,5 +20,5 @@ package types
 type AppMetadata struct {
 	Node  string `yaml:"node"`
 	URL   string `yaml:"url"`
-	Debug string `yaml:"debug"`
+	Debug bool   `yaml:"debug"`
 }
