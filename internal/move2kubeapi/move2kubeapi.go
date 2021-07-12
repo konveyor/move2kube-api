@@ -30,6 +30,14 @@ import (
 	"github.com/spf13/cast"
 )
 
+const (
+	customizationRouteVar = "customization"
+	nameRouteVar          = "name"
+	assetRouteVar         = "asset"
+	artifactRouteVar      = "artifact"
+	debugQueryParam       = "debug"
+)
+
 var m2kapp application.IApplication = application.NewFileSystem()
 
 func swagger(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +72,7 @@ func createApplication(w http.ResponseWriter, r *http.Request) {
 	//json.Unmarshal(reqBody, &newApp)
 	/*q := r.URL.Query()
 	newApp.Name = q.Get("name")*/
-	newApp.Name = r.FormValue("name")
+	newApp.Name = r.FormValue(nameRouteVar)
 	newApp.Status = []application.ApplicationStatus{}
 	err := m2kapp.NewApplication(newApp)
 	if err != nil {
@@ -85,7 +93,7 @@ func createApplication(w http.ResponseWriter, r *http.Request) {
 }
 
 func getApplication(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)["name"]
+	name := mux.Vars(r)[nameRouteVar]
 	app, err := m2kapp.GetApplication(name)
 	if err != nil {
 		log.Errorf("Error while fetching application : %s : %s", name, err)
@@ -101,7 +109,7 @@ func getApplication(w http.ResponseWriter, r *http.Request) {
 }
 
 func deleteApplication(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)["name"]
+	name := mux.Vars(r)[nameRouteVar]
 	err := m2kapp.DeleteApplication(name)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
@@ -112,7 +120,7 @@ func deleteApplication(w http.ResponseWriter, r *http.Request) {
 }
 
 func uploadAsset(w http.ResponseWriter, r *http.Request, isCustomization bool) {
-	name := mux.Vars(r)["name"]
+	name := mux.Vars(r)[nameRouteVar]
 	file, handler, err := r.FormFile("file")
 	if err != nil {
 		log.Errorf("Did not get asset : %s", err)
@@ -131,7 +139,7 @@ func uploadAsset(w http.ResponseWriter, r *http.Request, isCustomization bool) {
 }
 
 func getAssetsList(w http.ResponseWriter, r *http.Request, isCustomization bool) {
-	name := mux.Vars(r)["name"]
+	name := mux.Vars(r)[nameRouteVar]
 	assets, err := m2kapp.GetAssetsList(name, isCustomization)
 	if err != nil || assets == nil {
 		log.Errorf("Could not get the assets/customizations for the app %s . Error: %q", name, err)
@@ -146,12 +154,12 @@ func getAssetsList(w http.ResponseWriter, r *http.Request, isCustomization bool)
 }
 
 func getAsset(w http.ResponseWriter, r *http.Request, isCustomization bool) {
-	name := mux.Vars(r)["name"]
+	name := mux.Vars(r)[nameRouteVar]
 	asset := ""
 	if isCustomization {
-		asset = mux.Vars(r)["customization"]
+		asset = mux.Vars(r)[customizationRouteVar]
 	} else {
-		asset = mux.Vars(r)["asset"]
+		asset = mux.Vars(r)[assetRouteVar]
 	}
 	file, filename, err := m2kapp.GetAsset(name, asset, isCustomization)
 	if err != nil || file == nil {
@@ -168,12 +176,12 @@ func getAsset(w http.ResponseWriter, r *http.Request, isCustomization bool) {
 }
 
 func deleteAsset(w http.ResponseWriter, r *http.Request, isCustomization bool) {
-	name := mux.Vars(r)["name"]
+	name := mux.Vars(r)[nameRouteVar]
 	asset := ""
 	if isCustomization {
-		asset = mux.Vars(r)["customization"]
+		asset = mux.Vars(r)[customizationRouteVar]
 	} else {
-		asset = mux.Vars(r)["asset"]
+		asset = mux.Vars(r)[assetRouteVar]
 	}
 	if err := m2kapp.DeleteAsset(name, asset, isCustomization); err != nil {
 		log.Errorf("Could not delete asset : %s", err)
@@ -186,13 +194,13 @@ func deleteAsset(w http.ResponseWriter, r *http.Request, isCustomization bool) {
 }
 
 func generateTargetArtifacts(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)["name"]
+	name := mux.Vars(r)[nameRouteVar]
 	plan := r.FormValue("plan")
 
 	artifactName := name + "-" + cast.ToString(time.Now().Unix())
 	log.Infof("Artifact Name:%s", artifactName)
 
-	keys, ok := r.URL.Query()["debug"]
+	keys, ok := r.URL.Query()[debugQueryParam]
 	var debugFlag bool
 	if !ok || len(keys[0]) == 0 {
 		log.Debugf("Query parameter debug : false")
@@ -220,8 +228,8 @@ func generateTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 }
 
 func getTargetArtifacts(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)["name"]
-	artifact := mux.Vars(r)["artifact"]
+	name := mux.Vars(r)[nameRouteVar]
+	artifact := mux.Vars(r)[artifactRouteVar]
 
 	file, filename := m2kapp.GetTargetArtifacts(name, artifact)
 	if filename == "error" {
@@ -243,7 +251,7 @@ func getTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 }
 
 func getTargetArtifactsList(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)["name"]
+	name := mux.Vars(r)[nameRouteVar]
 
 	artifacts := m2kapp.GetTargetArtifactsList(name)
 	if artifacts == nil {
@@ -260,8 +268,8 @@ func getTargetArtifactsList(w http.ResponseWriter, r *http.Request) {
 }
 
 func deleteTargetArtifacts(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)["name"]
-	artifact := mux.Vars(r)["artifact"]
+	name := mux.Vars(r)[nameRouteVar]
+	artifact := mux.Vars(r)[artifactRouteVar]
 
 	err := m2kapp.DeleteTargetArtifacts(name, artifact)
 	if err != nil {
@@ -276,8 +284,8 @@ func deleteTargetArtifacts(w http.ResponseWriter, r *http.Request) {
 }
 
 func startPlan(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)["name"]
-	keys, ok := r.URL.Query()["debug"]
+	name := mux.Vars(r)[nameRouteVar]
+	keys, ok := r.URL.Query()[debugQueryParam]
 	var debugFlag bool
 	if !ok || len(keys[0]) == 0 {
 		log.Infof("Query parameter debug : false")
@@ -305,7 +313,7 @@ func startPlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func updatePlan(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)["name"]
+	name := mux.Vars(r)[nameRouteVar]
 	planfile := r.FormValue("plan")
 
 	err := m2kapp.UpdatePlan(name, planfile)
@@ -319,7 +327,7 @@ func updatePlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func getPlan(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)["name"]
+	name := mux.Vars(r)[nameRouteVar]
 
 	plan, filename := m2kapp.GetPlan(name)
 	if filename == "" {
@@ -340,7 +348,7 @@ func getPlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func deletePlan(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)["name"]
+	name := mux.Vars(r)[nameRouteVar]
 
 	err := m2kapp.DeletePlan(name)
 	if err != nil {
@@ -352,8 +360,8 @@ func deletePlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func getQuestion(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)["name"]
-	artifacts := mux.Vars(r)["artifacts"]
+	name := mux.Vars(r)[nameRouteVar]
+	artifacts := mux.Vars(r)[artifactRouteVar]
 	problem, err := m2kapp.GetQuestion(name, artifacts)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
@@ -364,8 +372,8 @@ func getQuestion(w http.ResponseWriter, r *http.Request) {
 }
 
 func postSolution(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)["name"]
-	artifacts := mux.Vars(r)["artifacts"]
+	name := mux.Vars(r)[nameRouteVar]
+	artifacts := mux.Vars(r)[artifactRouteVar]
 	solution, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -430,8 +438,8 @@ func Serve(port int) {
 	router.HandleFunc("/api/v1/applications/{name}/plan", updatePlan).Methods("PUT")
 	router.HandleFunc("/api/v1/applications/{name}/plan", deletePlan).Methods("DELETE")
 
-	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifacts}/problems/current", getQuestion).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifacts}/problems/current/solution", postSolution).Methods("POST")
+	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifact}/problems/current", getQuestion).Methods("GET")
+	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifact}/problems/current/solution", postSolution).Methods("POST")
 
 	log.Infof("Starting Move2Kube API server at port: %d", port)
 	log.Fatal(http.ListenAndServe(":"+cast.ToString(port), router))
