@@ -17,430 +17,199 @@ limitations under the License.
 package move2kubeapi
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"io/ioutil"
+	"io/fs"
+	"log"
 	"net/http"
-	"time"
+	"net/http/httputil"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/gorilla/mux"
-	"github.com/konveyor/move2kube-api/internal/application"
-	log "github.com/sirupsen/logrus"
+	"github.com/konveyor/move2kube-api/assets"
+	"github.com/konveyor/move2kube-api/internal/common"
+	"github.com/konveyor/move2kube-api/internal/move2kubeapi/handlers"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cast"
 )
 
-const (
-	customizationRouteVar = "customization"
-	nameRouteVar          = "name"
-	assetRouteVar         = "asset"
-	artifactRouteVar      = "artifact"
-	debugQueryParam       = "debug"
-)
-
-var m2kapp application.IApplication = application.NewFileSystem()
-
-func swagger(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Swagger will come here!")
-}
-
-func support(w http.ResponseWriter, r *http.Request) {
-	responseBody := m2kapp.GetSupportInfo()
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(responseBody); err != nil {
-		log.Errorf("Failed to write support information. Error: %q", err)
+// Serve starts the Move2Kube API server.
+func Serve() error {
+	if err := handlers.Setup(); err != nil {
+		return fmt.Errorf("failed to setup the handlers. Error: %q", err)
 	}
-}
 
-func getApplications(w http.ResponseWriter, r *http.Request) {
-	applications := m2kapp.GetApplications()
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	err := json.NewEncoder(w).Encode(application.Applications{Applications: applications})
-	if err != nil {
-		log.Errorf("Error while getting application list : %s", err)
+	router := mux.NewRouter()
+	router.Use(handlers.GetLoggingMiddleWare)
+	router.Use(handlers.GetRemoveTrailingSlashMiddleWare)
+
+	// dynamic routes
+	if common.Config.AuthEnabled {
+		router.HandleFunc(common.LOGIN_PATH, handlers.HandleLogin).Methods("GET")
+		router.HandleFunc(common.LOGIN_CALLBACK_PATH, handlers.HandleLoginCallback).Methods("GET")
+		router.HandleFunc("/auth/logout", handlers.HandleLogout).Methods("POST")
+		router.HandleFunc("/auth/user-profile", handlers.HandleUserProfile).Methods("GET")
 	}
-}
 
-func createApplication(w http.ResponseWriter, r *http.Request) {
-	var newApp application.Application
-	/*reqBody, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		fmt.Fprintf(w, "Unable to read data")
-	}*/
-	//json.Unmarshal(reqBody, &newApp)
-	/*q := r.URL.Query()
-	newApp.Name = q.Get("name")*/
-	newApp.Name = r.FormValue(nameRouteVar)
-	newApp.Status = []application.ApplicationStatus{}
-	err := m2kapp.NewApplication(newApp)
-	if err != nil {
-		if err.Error() == "Already exists." {
-			log.Errorf("Application already exists : %s", err)
-			w.WriteHeader(http.StatusAlreadyReported)
-		} else {
-			log.Errorf("Unable to create application : %s", err)
-			w.WriteHeader(http.StatusBadRequest)
-		}
-	} else {
-		w.WriteHeader(http.StatusCreated)
-		err = json.NewEncoder(w).Encode(newApp)
+	// API routes
+	router.Handle("/api/v1", http.RedirectHandler("/swagger/openapi.json", http.StatusFound)).Methods("GET") // openapi v3 json
+	apiRouter := router.PathPrefix("/api/v1").Subrouter()
+
+	if common.Config.AuthEnabled {
+		apiRouter.Use(handlers.GetAuthorizationMiddleWare)
+
+		// admin
+		apiRouter.HandleFunc("/token", handlers.HandleGetAccessToken).Methods("POST")
+
+		// roles
+		apiRouter.HandleFunc("/roles", handlers.HandleListRoles).Methods("GET")
+		apiRouter.HandleFunc("/roles", handlers.HandleCreateRole).Methods("POST")
+		apiRouter.HandleFunc("/roles/{role-id}", handlers.HandleReadRole).Methods("GET")
+		apiRouter.HandleFunc("/roles/{role-id}", handlers.HandleUpdateRole).Methods("PUT")
+		apiRouter.HandleFunc("/roles/{role-id}", handlers.HandleDeleteRole).Methods("DELETE")
+
+		// role-bindings
+		apiRouter.HandleFunc("/idps/{idp-id}/users/{user-id}/roles", handlers.HandleListRoleBindings).Methods("GET")
+		apiRouter.HandleFunc("/idps/{idp-id}/users/{user-id}/roles", handlers.HandlePatchRoleBindings).Methods("PATCH")
+		apiRouter.HandleFunc("/idps/{idp-id}/users/{user-id}/roles/{role-id}", handlers.HandleCreateRoleBinding).Methods("PUT")
+		apiRouter.HandleFunc("/idps/{idp-id}/users/{user-id}/roles/{role-id}", handlers.HandleDeleteRoleBinding).Methods("DELETE")
+	}
+
+	// general
+	apiRouter.HandleFunc("/support", handlers.HandleSupport).Methods("GET")
+
+	// workspaces
+	apiRouter.HandleFunc("/workspaces", handlers.HandleListWorkspaces).Methods("GET")
+	apiRouter.HandleFunc("/workspaces", handlers.HandleCreateWorkspace).Methods("POST")
+	apiRouter.HandleFunc("/workspaces/{work-id}", handlers.HandleReadWorkspace).Methods("GET")
+	apiRouter.HandleFunc("/workspaces/{work-id}", handlers.HandleUpdateWorkspace).Methods("PUT")
+	apiRouter.HandleFunc("/workspaces/{work-id}", handlers.HandleDeleteWorkspace).Methods("DELETE")
+
+	// projects
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects", handlers.HandleListProjects).Methods("GET")
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects", handlers.HandleCreateProject).Methods("POST")
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}", handlers.HandleReadProject).Methods("GET")
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}", handlers.HandleDeleteProject).Methods("DELETE")
+
+	// project inputs
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/inputs", handlers.HandleCreateProjectInput).Methods("POST")
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/inputs/{input-id}", handlers.HandleReadProjectInput).Methods("GET")
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/inputs/{input-id}", handlers.HandleDeleteProjectInput).Methods("DELETE")
+
+	// plan
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/plan", handlers.HandleStartPlanning).Methods("POST")
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/plan", handlers.HandleReadPlan).Methods("GET")
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/plan", handlers.HandleUpdatePlan).Methods("PUT")
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/plan", handlers.HandleDeletePlan).Methods("DELETE")
+
+	// project outputs
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/outputs", handlers.HandleStartTransformation).Methods("POST")
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/outputs/{output-id}", handlers.HandleReadProjectOutput).Methods("GET")
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/outputs/{output-id}", handlers.HandleDeleteProjectOutput).Methods("DELETE")
+
+	// QA
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/outputs/{output-id}/problems/current", handlers.HandleGetQuestion).Methods("GET")
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/outputs/{output-id}/problems/current/solution", handlers.HandlePostSolution).Methods("POST")
+
+	if common.Config.AuthEnabled {
+		// Reverse proxy the authorization server. Required for login.
+		backendURL, err := url.Parse(common.Config.AuthServer)
 		if err != nil {
-			log.Errorf("Error while creating application : %s", err)
+			return fmt.Errorf("failed to parse the authorization server URL as a URL. Error: %q", err)
 		}
-	}
-}
-
-func getApplication(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)[nameRouteVar]
-	app, err := m2kapp.GetApplication(name)
-	if err != nil {
-		log.Errorf("Error while fetching application : %s : %s", name, err)
-		w.WriteHeader(http.StatusNotFound)
-	} else {
-		log.Debugf("Fetched application : %s", name)
-		w.WriteHeader(http.StatusOK)
-		err = json.NewEncoder(w).Encode(app)
-		if err != nil {
-			log.Errorf("Error while getting application : %s", err)
-		}
-	}
-}
-
-func deleteApplication(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)[nameRouteVar]
-	err := m2kapp.DeleteApplication(name)
-	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-	} else {
-		w.WriteHeader(http.StatusOK)
-		log.Infof("Application %s has been deleted successfully", name)
-	}
-}
-
-func uploadAsset(w http.ResponseWriter, r *http.Request, isCustomization bool) {
-	name := mux.Vars(r)[nameRouteVar]
-	file, handler, err := r.FormFile("file")
-	if err != nil {
-		log.Errorf("Did not get asset : %s", err)
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	defer file.Close()
-	if err := m2kapp.UploadAsset(name, handler.Filename, file, isCustomization); err != nil {
-		log.Errorf("Could not update with asset : %s", err)
-		w.WriteHeader(http.StatusGone)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	_, _ = io.WriteString(w, "File "+handler.Filename+" Uploaded successfully")
-	log.Infof("Asset %s uploaded successfully for app %s", handler.Filename, name)
-}
-
-func getAssetsList(w http.ResponseWriter, r *http.Request, isCustomization bool) {
-	name := mux.Vars(r)[nameRouteVar]
-	assets, err := m2kapp.GetAssetsList(name, isCustomization)
-	if err != nil || assets == nil {
-		log.Errorf("Could not get the assets/customizations for the app %s . Error: %q", name, err)
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(assets); err != nil {
-		log.Errorf("failed to marhsal the assets/customizations list %+v to json. Error: %q", assets, err)
-	}
-}
-
-func getAsset(w http.ResponseWriter, r *http.Request, isCustomization bool) {
-	name := mux.Vars(r)[nameRouteVar]
-	asset := ""
-	if isCustomization {
-		asset = mux.Vars(r)[customizationRouteVar]
-	} else {
-		asset = mux.Vars(r)[assetRouteVar]
-	}
-	file, filename, err := m2kapp.GetAsset(name, asset, isCustomization)
-	if err != nil || file == nil {
-		log.Errorf("Could not get asset %s for the app %s . Error: %q", asset, name, err)
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
-	if _, err := io.Copy(w, file); err != nil {
-		log.Errorf("failed to send the asset/customization to the client. Error: %q", err)
-	}
-}
-
-func deleteAsset(w http.ResponseWriter, r *http.Request, isCustomization bool) {
-	name := mux.Vars(r)[nameRouteVar]
-	asset := ""
-	if isCustomization {
-		asset = mux.Vars(r)[customizationRouteVar]
-	} else {
-		asset = mux.Vars(r)[assetRouteVar]
-	}
-	if err := m2kapp.DeleteAsset(name, asset, isCustomization); err != nil {
-		log.Errorf("Could not delete asset : %s", err)
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	_, _ = io.WriteString(w, "Asset "+asset+" deleted successfully")
-	log.Infof("Asset %s deleted successfully for app %s", asset, name)
-}
-
-func generateTargetArtifacts(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)[nameRouteVar]
-	plan := r.FormValue("plan")
-
-	artifactName := name + "-" + cast.ToString(time.Now().Unix())
-	log.Infof("Artifact Name:%s", artifactName)
-
-	keys, ok := r.URL.Query()[debugQueryParam]
-	var debugFlag bool
-	if !ok || len(keys[0]) == 0 {
-		log.Debugf("Query parameter debug : false")
-	} else {
-		var err error
-		debugFlag, err = cast.ToBoolE(keys[0])
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			bodyBytes, err := json.Marshal(map[string]string{"error": "the debug parameter must be boolean"})
-			if err != nil {
-				log.Error(err)
-				return
+		revProxy := httputil.NewSingleHostReverseProxy(backendURL)
+		oldDirector := revProxy.Director
+		revProxy.Director = func(req *http.Request) {
+			logrus.Debugf("reverse proxy, request before modification: %+v", req)
+			oldDirector(req)
+			req.Host = req.URL.Host
+			if req.URL.Path == backendURL.Path+"/" {
+				req.URL.Path = backendURL.Path
+				req.URL.RawPath = backendURL.Path
 			}
-			w.Write(bodyBytes)
+			logrus.Debugf("reverse proxy, request after modification: %+v", req)
 		}
-		log.Debugf("Query parameter debug : %v", debugFlag)
-	}
-	if err := m2kapp.Transform(name, artifactName, plan, debugFlag); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = io.WriteString(w, "Could not start transformation : "+err.Error())
-		return
-	}
-	w.WriteHeader(http.StatusAccepted)
-	_, _ = io.WriteString(w, artifactName)
-}
-
-func getTargetArtifacts(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)[nameRouteVar]
-	artifact := mux.Vars(r)[artifactRouteVar]
-
-	file, filename := m2kapp.GetTargetArtifacts(name, artifact)
-	if filename == "error" {
-		log.Errorf("Artifact %s not found. Start Transformation.", artifact)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	} else if filename == "ongoing" {
-		log.Infof("Artifact generation ongoing : %s", name)
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
-	w.Header().Set("Content-Type", r.Header.Get("Content-Type"))
-	w.WriteHeader(http.StatusOK)
-	_, err := io.Copy(w, file)
-	if err != nil {
-		log.Errorf("Error while getting asset : %s", err)
-	}
-}
-
-func getTargetArtifactsList(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)[nameRouteVar]
-
-	artifacts := m2kapp.GetTargetArtifactsList(name)
-	if artifacts == nil {
-		log.Errorf("Could not get artifacts")
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Content-Type", r.Header.Get("Content-Type"))
-	err := json.NewEncoder(w).Encode(artifacts)
-	if err != nil {
-		log.Errorf("Error while getting target artifacts list : %s", err)
-	}
-}
-
-func deleteTargetArtifacts(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)[nameRouteVar]
-	artifact := mux.Vars(r)[artifactRouteVar]
-
-	err := m2kapp.DeleteTargetArtifacts(name, artifact)
-	if err != nil {
-		log.Errorf("Could not delete artifact : %s", err)
-		w.WriteHeader(http.StatusNotFound)
-		return
+		router.PathPrefix(common.Config.AuthServerBasePath).Handler(revProxy)
 	}
 
-	w.WriteHeader(http.StatusOK)
-	_, _ = io.WriteString(w, "Asset "+artifact+" deleted successfully")
-	log.Infof("Asset %s deleted successfully for app %s", artifact, name)
-}
+	// static routes
+	// swagger UI
+	swaggerDir, _ := fs.Sub(assets.SwaggerUI, "swagger")
+	router.Handle("/swagger", http.RedirectHandler("/swagger/", http.StatusMovedPermanently))
+	router.PathPrefix("/swagger/").Handler(http.StripPrefix("/swagger", http.FileServer(http.FS(swaggerDir)))).Methods("GET")
 
-func startPlan(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)[nameRouteVar]
-	keys, ok := r.URL.Query()[debugQueryParam]
-	var debugFlag bool
-	if !ok || len(keys[0]) == 0 {
-		log.Infof("Query parameter debug : false")
-	} else {
-		var err error
-		debugFlag, err = cast.ToBoolE(keys[0])
+	// move2kube UI
+	staticFilesDir := common.Config.StaticFilesDir
+	if staticFilesDir != "" {
+		finfo, err := os.Stat(staticFilesDir)
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			bodyBytes, err := json.Marshal(map[string]string{"error": "the debug parameter must be boolean"})
-			if err != nil {
-				log.Error(err)
-				return
+			if os.IsNotExist(err) {
+				log.Fatalf("the static files directory %s does not exist.", staticFilesDir)
 			}
-			w.Write(bodyBytes)
+			log.Fatalf("failed to stat the static files directory at path %s . Error: %q", staticFilesDir, err)
 		}
-		log.Infof("Query parameter debug : %v", debugFlag)
+		if !finfo.IsDir() {
+			return fmt.Errorf("the path %s points to a file. Expected a directory containing static files to be served", staticFilesDir)
+		}
+		m2kUI := http.FileServer(http.Dir(staticFilesDir))
+		letReactRouterHandleIt := func(w http.ResponseWriter, r *http.Request) bool {
+			if r.Method != "GET" {
+				return false
+			}
+			accepting := r.Header[http.CanonicalHeaderKey("Accept")]
+			found := false
+			for _, aa := range accepting {
+				if strings.Contains(aa, "text/html") {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+			w.Header().Set(common.CONTENT_TYPE_HEADER, "text/html")
+			w.WriteHeader(http.StatusOK)
+			http.ServeFile(w, r, filepath.Join(staticFilesDir, "index.html"))
+			return true
+		}
+		router.PathPrefix("/").Handler(handle404(m2kUI, letReactRouterHandleIt)).Methods("GET")
 	}
-	if err := m2kapp.GeneratePlan(name, debugFlag); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = io.WriteString(w, "Could not start plan : "+err.Error())
-		return
+
+	logrus.Infof("Starting Move2Kube API server at port: %d", common.Config.Port)
+	if err := http.ListenAndServe(":"+cast.ToString(common.Config.Port), router); err != nil {
+		return fmt.Errorf("failed to listen and serve on port %d . Error: %q", common.Config.Port, err)
 	}
-	w.WriteHeader(http.StatusAccepted)
-	_, _ = io.WriteString(w, "Planning started!")
+	return nil
 }
 
-func updatePlan(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)[nameRouteVar]
-	planfile := r.FormValue("plan")
+// let react router handle unrecognized text/html GET requests
 
-	err := m2kapp.UpdatePlan(name, planfile)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = io.WriteString(w, "Could not start plan : "+err.Error())
-	} else {
-		w.WriteHeader(http.StatusAccepted)
-		_, _ = io.WriteString(w, "Planning started!")
-	}
+type hijack404 struct {
+	http.ResponseWriter
+	R         *http.Request
+	Handle404 func(w http.ResponseWriter, r *http.Request) bool
 }
 
-func getPlan(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)[nameRouteVar]
-
-	plan, filename := m2kapp.GetPlan(name)
-	if filename == "" {
-		log.Debugf("Plan not found. Start Planning.")
-		w.WriteHeader(http.StatusNotFound)
-		return
-	} else if filename == "ongoing" {
-		log.Infof("Plan generation ongoing : %s", name)
-		w.WriteHeader(http.StatusAccepted)
-		return
+func (h *hijack404) WriteHeader(code int) {
+	if code == 404 && h.Handle404(h.ResponseWriter, h.R) {
+		panic(h)
 	}
-	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
-	w.Header().Set("Content-Type", r.Header.Get("Content-Type"))
-	_, err := io.Copy(w, plan)
-	if err != nil {
-		log.Errorf("Error while getting plan : %s", err)
-	}
+	h.ResponseWriter.WriteHeader(code)
 }
 
-func deletePlan(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)[nameRouteVar]
-
-	err := m2kapp.DeletePlan(name)
-	if err != nil {
-		log.Infof("Plan not found. Start Planning.")
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-}
-
-func getQuestion(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)[nameRouteVar]
-	artifacts := mux.Vars(r)[artifactRouteVar]
-	problem, err := m2kapp.GetQuestion(name, artifacts)
-	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	_, _ = io.WriteString(w, problem)
-}
-
-func postSolution(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)[nameRouteVar]
-	artifacts := mux.Vars(r)[artifactRouteVar]
-	solution, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	solutionstr := string(solution)
-	err = m2kapp.PostSolution(name, artifacts, solutionstr)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-	} else {
-		w.WriteHeader(http.StatusOK)
-	}
-}
-
-func download(w http.ResponseWriter, r *http.Request) {
-	file, filename := m2kapp.Download()
-	if file == nil {
-		log.Errorf("Could not get binary")
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-
-	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
-	w.Header().Set("Content-Type", r.Header.Get("Content-Type"))
-	_, err := io.Copy(w, file)
-	if err != nil {
-		log.Errorf("Error during app download : %s", err)
-	}
-}
-
-// Serve serves the api server
-func Serve(port int) {
-	router := mux.NewRouter().StrictSlash(true)
-	//router.Handle("/", handlers.LoggingHandler(os.Stdout, http.HandlerFunc(swagger)))
-	router.HandleFunc("/", swagger)
-	router.HandleFunc("/api/v1/", swagger)
-	router.HandleFunc("/api/v1/support", support)
-
-	router.HandleFunc("/api/v1/download", download).Methods("GET")
-	router.HandleFunc("/api/v1/applications", createApplication).Methods("POST")
-	router.HandleFunc("/api/v1/applications", getApplications).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}", getApplication).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}", deleteApplication).Methods("DELETE")
-
-	router.HandleFunc("/api/v1/applications/{name}/assets", func(w http.ResponseWriter, r *http.Request) { getAssetsList(w, r, false) }).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}/assets", func(w http.ResponseWriter, r *http.Request) { uploadAsset(w, r, false) }).Methods("POST")
-	router.HandleFunc("/api/v1/applications/{name}/assets/{asset}", func(w http.ResponseWriter, r *http.Request) { deleteAsset(w, r, false) }).Methods("DELETE")
-	router.HandleFunc("/api/v1/applications/{name}/assets/{asset}", func(w http.ResponseWriter, r *http.Request) { getAsset(w, r, false) }).Methods("GET")
-
-	router.HandleFunc("/api/v1/applications/{name}/customizations", func(w http.ResponseWriter, r *http.Request) { getAssetsList(w, r, true) }).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}/customizations", func(w http.ResponseWriter, r *http.Request) { uploadAsset(w, r, true) }).Methods("POST")
-	router.HandleFunc("/api/v1/applications/{name}/customizations/{customization}", func(w http.ResponseWriter, r *http.Request) { deleteAsset(w, r, true) }).Methods("DELETE")
-	router.HandleFunc("/api/v1/applications/{name}/customizations/{customization}", func(w http.ResponseWriter, r *http.Request) { getAsset(w, r, true) }).Methods("GET")
-
-	router.HandleFunc("/api/v1/applications/{name}/targetartifacts", getTargetArtifactsList).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}/targetartifacts", generateTargetArtifacts).Methods("POST")
-	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifact}", getTargetArtifacts).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifact}", deleteTargetArtifacts).Methods("DELETE")
-
-	router.HandleFunc("/api/v1/applications/{name}/plan", getPlan).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}/plan", startPlan).Methods("POST")
-	router.HandleFunc("/api/v1/applications/{name}/plan", updatePlan).Methods("PUT")
-	router.HandleFunc("/api/v1/applications/{name}/plan", deletePlan).Methods("DELETE")
-
-	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifact}/problems/current", getQuestion).Methods("GET")
-	router.HandleFunc("/api/v1/applications/{name}/targetartifacts/{artifact}/problems/current/solution", postSolution).Methods("POST")
-
-	log.Infof("Starting Move2Kube API server at port: %d", port)
-	log.Fatal(http.ListenAndServe(":"+cast.ToString(port), router))
+func handle404(handler http.Handler, handle404 func(w http.ResponseWriter, r *http.Request) bool) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hijack := &hijack404{ResponseWriter: w, R: r, Handle404: handle404}
+		defer func() {
+			if p := recover(); p != nil {
+				if p == hijack {
+					return
+				}
+				panic(p)
+			}
+		}()
+		handler.ServeHTTP(hijack, r)
+	})
 }

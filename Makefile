@@ -17,14 +17,14 @@ BINDIR      := $(CURDIR)/bin
 DISTDIR		:= $(CURDIR)/_dist
 TARGETS     := darwin/amd64 linux/amd64
 REGISTRYNS  := quay.io/konveyor
+SWAGGER_UI_VERSION := 3.52.3
 
 GO_VERSION   ?= $(shell go run ./scripts/detectgoversion/detect.go 2>/dev/null || printf '1.16')
 GOPATH        = $(shell go env GOPATH)
 GOX           = $(GOPATH)/bin/gox
-GOLINT        = $(GOPATH)/bin/golint 
 GOTEST        = ${GOPATH}/bin/gotest
-GOLANGCILINT  = $(GOPATH)/bin/golangci-lint 
-GOLANGCOVER   = $(GOPATH)/bin/goveralls 
+GOLANGCILINT  = $(GOPATH)/bin/golangci-lint
+GOLANGCOVER   = $(GOPATH)/bin/goveralls
 
 PKG        := ./...
 LDFLAGS    := -w -s
@@ -72,7 +72,7 @@ help: ## This help.
 build: get $(BINDIR)/$(BINNAME) ## Build go code
 	@printf "\033[32m-------------------------------------\n BUILD SUCCESS\n-------------------------------------\033[0m\n"
 
-$(BINDIR)/$(BINNAME): $(SRC)
+$(BINDIR)/$(BINNAME): $(SRC) assets/swagger
 	go build -ldflags '$(LDFLAGS)' -o $(BINDIR)/$(BINNAME) ./cmd/move2kubeapi
 ifeq ($(HAS_UPX),true)
 	@echo 'upx detected. compressing binary...'
@@ -95,6 +95,24 @@ generate:
 .PHONY: deps
 deps: 
 	source scripts/installdeps.sh
+
+.PHONY: get_swagger
+get_swagger:
+	curl -Lo swagger-ui.tgz https://github.com/swagger-api/swagger-ui/archive/refs/tags/v$(SWAGGER_UI_VERSION).tar.gz \
+    && tar -xzf swagger-ui.tgz \
+    && mv swagger-ui-$(SWAGGER_UI_VERSION)/dist assets/swagger \
+    && cp assets/openapi.json assets/swagger/openapi.json \
+    && cp assets/index.html assets/swagger/index.html \
+    && rm swagger-ui.tgz \
+    && rm -rf swagger-ui-$(SWAGGER_UI_VERSION)
+
+assets/swagger:
+	make get_swagger
+ 
+.PHONY: update_swagger
+update_swagger:
+	rm -rf assets/swagger
+	make get_swagger
 
 # -- Test --
 
@@ -120,13 +138,9 @@ test-coverage: ${GOLANGCOVER} ## Run tests with coverage
 ${GOLANGCILINT}:
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOPATH)/bin v1.31.0
 
-${GOLINT}:
-	${GOGET} golang.org/x/lint/golint
-
 .PHONY: test-style
-test-style: ${GOLANGCILINT} ${GOLINT} 
+test-style: ${GOLANGCILINT}
 	${GOLANGCILINT} run --timeout 3m
-	${GOLINT} ${PKG}
 	scripts/licensecheck.sh
 	@printf "\033[32m-------------------------------------\n STYLE CHECK PASSED\n-------------------------------------\033[0m\n"
 
