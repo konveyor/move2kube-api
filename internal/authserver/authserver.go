@@ -235,7 +235,7 @@ func GetUserInfo(accessToken string) (types.UserInfo, error) {
 	if err != nil {
 		return types.UserInfo{}, fmt.Errorf("failed to get the user profile from the authz server. Error: %q", err)
 	}
-	return types.UserInfo(*user), err
+	return types.UserInfo(*user), nil
 }
 
 // GetUserInfoFromOIDC returns the user's identifying information from the OIDC user info endpoint

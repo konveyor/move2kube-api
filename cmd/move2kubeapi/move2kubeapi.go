@@ -54,6 +54,7 @@ For more information, visit https://move2kube.konveyor.io/`,
 	rootCmd.Flags().Int("cookie-max-age", 2*3600, "Max age for session cookies (in seconds).")
 	rootCmd.Flags().Bool("auth-enabled", false, "Enable authentication and authorization.")
 	rootCmd.Flags().Bool("secure-cookies", false, "Send cookies only if it is a https TLS connection. Turn this on in production environments.")
+	rootCmd.Flags().Bool("clean-up-after-transform", false, "Delete extra files after a transformation is finished. Helps save storage space.")
 	rootCmd.Flags().String("data-dir", "data", "Path to the directory where all the data will stored. It will be created if it doesn't exist.")
 	rootCmd.Flags().String("static-files-dir", "", "Path to the directory containing static files to be served. Used to serve the Move2Kube UI.")
 	rootCmd.Flags().String("session-secret", "", "A random secret to use for signing session cookies. By default it generates a new session secret.")
@@ -89,7 +90,7 @@ func readConfigFile() {
 		return
 	}
 	configFilePath := viper.GetString("config")
-	logrus.Info("reading config from file at path", configFilePath)
+	logrus.Infof("reading config from file at path %s", configFilePath)
 	viper.SetConfigFile(configFilePath)
 	if err := viper.ReadInConfig(); err != nil {
 		logrus.Fatalf("failed to read the config file at path %s . Error: %q", configFilePath, err)

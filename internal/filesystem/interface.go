@@ -25,7 +25,7 @@ import (
 // IFileSystem defines an interface that can manage Move2Kube workspaces and projects
 type IFileSystem interface {
 	GetSupportInfo() map[string]string
-	Download() (file io.Reader, filename string)
+	Download() (file io.Reader, filename string, err error)
 	ListWorkspaceIds() ([]string, error)
 	ListWorkspaces(workspaceIds []string) ([]types.Workspace, error)
 	CreateWorkspace(workspace types.Workspace) error
