@@ -1,11 +1,12 @@
 version: "3"
 services:
   move2kubeapi:
+    build:
+      context: ./
+      dockerfile: Dockerfile
     image: quay.io/konveyor/move2kube-api:latest
     ports:
       - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - "./:/workspace"
-    environment:
-      - MOVE2KUBE_PLATFORM="${MOVE2KUBE_PLATFORM}:api-docker-compose"
+      - "./:/move2kube-api/data"

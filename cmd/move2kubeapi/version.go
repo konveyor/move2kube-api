@@ -20,24 +20,19 @@ import (
 	"fmt"
 
 	"github.com/konveyor/move2kube-api/cmd/version"
+	"github.com/konveyor/move2kube-api/internal/common"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-
-
 func getVersionCommand() *cobra.Command {
-	viper.AutomaticEnv()
-
-	long := false
 	versionCmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print the version information",
 		Long:  "Print the version information",
-		Run:   func(*cobra.Command, []string) { fmt.Println(version.GetVersion(long)) },
+		Run:   func(*cobra.Command, []string) { fmt.Println(version.GetVersion(common.Config.VersionLong)) },
 	}
-
-	versionCmd.Flags().BoolVarP(&long, "long", "l", false, "print the version details")
-
+	versionCmd.Flags().BoolP("long", "l", false, "print the version details")
+	viper.BindPFlag("version-long", versionCmd.Flags().Lookup("long"))
 	return versionCmd
 }

@@ -45,10 +45,16 @@ RUN make build
 
 # Run image
 FROM quay.io/konveyor/move2kube:${VERSION}
-ENV MOVE2KUBE_PLATFORM="${MOVE2KUBE_PLATFORM}:api-dockerfile"
+WORKDIR /move2kube-api
+
 # Install move2kube-api
 COPY --from=build_base /go/bin/move2kube-api /bin/move2kube-api
+
+# for openshift
+RUN chown -R :root /move2kube-api
+RUN chmod -R 770 /move2kube-api
+# for openshift
+
 # Start app
-WORKDIR /workspace
 EXPOSE 8080
-CMD move2kube-api -p 8080
+CMD ["move2kube-api", "--port", "8080", "--log-level", "info"]
