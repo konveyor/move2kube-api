@@ -34,7 +34,7 @@ func HandleStartPlanning(w http.ResponseWriter, r *http.Request) {
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) {
-		logrus.Error("invalid id. Actual:", projectId)
+		logrus.Errorf("invalid id. Actual: %s %s", workspaceId, projectId)
 		sendErrorJSON(w, "invalid id", http.StatusBadRequest)
 		return
 	}
@@ -66,7 +66,7 @@ func HandleReadPlan(w http.ResponseWriter, r *http.Request) {
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) {
-		logrus.Error("invalid id. Actual:", projectId)
+		logrus.Errorf("invalid id. Actual: %s %s", workspaceId, projectId)
 		sendErrorJSON(w, "invalid id", http.StatusBadRequest)
 		return
 	}
@@ -79,12 +79,7 @@ func HandleReadPlan(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, ok := err.(types.ErrorOngoing); ok {
 			if plan != nil {
-				planBytes, ok := plan.(*bytes.Buffer)
-				if !ok {
-					logrus.Errorf("the plan progress is not a *bytes.Buffer. Actual value is %+v of type %T", plan, plan)
-					w.WriteHeader(http.StatusInternalServerError)
-					return
-				}
+				planBytes := plan.(*bytes.Buffer)
 				w.Header().Set(common.CONTENT_TYPE_HEADER, common.CONTENT_TYPE_JSON)
 				w.WriteHeader(http.StatusAccepted)
 				w.Write(planBytes.Bytes())
@@ -118,7 +113,7 @@ func HandleUpdatePlan(w http.ResponseWriter, r *http.Request) {
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) {
-		logrus.Error("invalid id. Actual:", projectId)
+		logrus.Errorf("invalid id. Actual: %s %s", workspaceId, projectId)
 		sendErrorJSON(w, "invalid id", http.StatusBadRequest)
 		return
 	}
@@ -152,7 +147,7 @@ func HandleDeletePlan(w http.ResponseWriter, r *http.Request) {
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) {
-		logrus.Error("invalid id. Actual:", projectId)
+		logrus.Errorf("invalid id. Actual: %s %s", workspaceId, projectId)
 		sendErrorJSON(w, "invalid id", http.StatusBadRequest)
 		return
 	}

@@ -105,7 +105,8 @@ func HandleLoginCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !sessInfo.IsValidCSRFToken(actualCSRFToken) {
-		logrus.Errorf("the CSRF token doesn't match. Expected: %s . Actual %s", sessInfo.GetCSRFToken(), actualCSRFToken)
+		logrus.Debugf("Expected: %s Actual: %s", sessInfo.GetCSRFToken(), actualCSRFToken)
+		logrus.Errorf("the CSRF token doesn't match")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}

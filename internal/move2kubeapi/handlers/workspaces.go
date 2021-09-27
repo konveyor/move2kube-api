@@ -128,7 +128,7 @@ func HandleReadWorkspace(w http.ResponseWriter, r *http.Request) {
 	routeVars := mux.Vars(r)
 	workspaceId := routeVars[WORKSPACE_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) {
-		logrus.Error("invalid workspace id. Actual: ", workspaceId)
+		logrus.Errorf("invalid workspace id. Actual: %s", workspaceId)
 		sendErrorJSON(w, "invalid workspace id", http.StatusBadRequest)
 		return
 	}
@@ -180,7 +180,7 @@ func HandleUpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 	routeVars := mux.Vars(r)
 	workspaceId := routeVars[WORKSPACE_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) {
-		logrus.Error("the workspace id is invalid. Actual: ", workspaceId)
+		logrus.Errorf("the workspace id is invalid. Actual: %s", workspaceId)
 		sendErrorJSON(w, "invalid workspace id", http.StatusBadRequest)
 		return
 	}
@@ -241,7 +241,7 @@ func HandleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	routeVars := mux.Vars(r)
 	workspaceId := routeVars[WORKSPACE_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) {
-		logrus.Error("the workspace id is invalid. Actual: ", workspaceId)
+		logrus.Errorf("the workspace id is invalid. Actual: %s", workspaceId)
 		sendErrorJSON(w, "invalid workspace id", http.StatusBadRequest)
 		return
 	}

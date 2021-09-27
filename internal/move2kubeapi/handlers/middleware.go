@@ -43,7 +43,7 @@ func GetAuthorizationMiddleWare(next http.Handler) http.Handler {
 		resPath := path.Clean(r.URL.Path)
 		resPath = strings.TrimPrefix(resPath, "/api/v1")
 		if resPath == "" || resPath == "/" || resPath == "." {
-			logrus.Warnf("after cleaning the resPath is: '%s'", resPath)
+			logrus.Warnf("after cleaning, the resPath is: '%s'", resPath)
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}

@@ -9,4 +9,4 @@ services:
       - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - "./:/move2kube-api/data"
+      - "./data:/move2kube-api/data"

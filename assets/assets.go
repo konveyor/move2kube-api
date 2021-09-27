@@ -14,12 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint // See https://github.com/golang/lint/issues/503 and https://github.com/golangci/golangci-lint/issues/1727
 package assets
 
 import (
 	"embed"
 )
 
+// SwaggerUI contains the static files that make up the Swagger UI
 //go:embed swagger/*
 var SwaggerUI embed.FS
