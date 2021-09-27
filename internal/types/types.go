@@ -32,6 +32,7 @@ type ConfigT struct {
 	VersionLong                  bool     `mapstructure:"version-long"`
 	SecureCookies                bool     `mapstructure:"secure-cookies"`
 	AuthEnabled                  bool     `mapstructure:"auth-enabled"`
+	CleanUpAfterTransform        bool     `mapstructure:"clean-up-after-transform"`
 	CloudEventsEnabled           bool     `mapstructure:"cloud-events-enabled"`
 	Port                         int      `mapstructure:"port"`
 	CookieMaxAge                 int      `mapstructure:"cookie-max-age"`

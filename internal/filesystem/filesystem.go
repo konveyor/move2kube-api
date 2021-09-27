@@ -67,6 +67,8 @@ const (
 	M2K_QA_SERVER_METADATA_FILE = common.APP_NAME_SHORT + ".qaserver"
 	// M2K_PLAN_PROGRESS_SERVER_METADATA_FILE is the name of the file containing the plan progress server metadata
 	M2K_PLAN_PROGRESS_SERVER_METADATA_FILE = common.APP_NAME_SHORT + ".planprogressserver"
+	// M2K_CLI_LOG_FILE is the name of the log file that the CLI writes to
+	M2K_CLI_LOG_FILE = common.APP_NAME_SHORT + "cli.log"
 	// PROJECT_METADATA_FILE is the name of the file containing the project metadata
 	PROJECT_METADATA_FILE = "metadata"
 	// DEFAULT_DIRECTORY_PERMISSIONS is the default permissions used when creating new directories
@@ -81,7 +83,7 @@ var (
 	// LOG_LEVEL_REGEXP is the regexp used to capture the loglevel from the CLI output
 	LOG_LEVEL_REGEXP = regexp.MustCompile(`level=([a-z]+) `)
 	// TIMESTAMP_REGEXP is the regexp used to replace the the timestamp in the CLI output with a different message
-	TIMESTAMP_REGEXP = regexp.MustCompile(`time="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"`)
+	TIMESTAMP_REGEXP = regexp.MustCompile(`time="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|\+\d{2}:\d{2})"`)
 )
 
 /*
@@ -165,38 +167,27 @@ func (*FileSystem) GetSupportInfo() map[string]string {
 	info := map[string]string{}
 	info["cli_version"] = string(cliVersionBytes)
 	info["api_version"] = version.GetVersion(true)
-	info["platform"] = "unknown"
-	if val, ok := os.LookupEnv("MOVE2KUBE_PLATFORM"); ok {
-		info["platform"] = val
-	}
-	x := struct {
+	uiVersion := struct {
 		Version      string `yaml:"version"`
 		GitCommit    string `yaml:"gitCommit"`
 		GitTreeState string `yaml:"gitTreeState"`
 	}{}
 	if val, ok := os.LookupEnv("MOVE2KUBE_UI_VERSION"); ok {
-		x.Version = val
+		uiVersion.Version = val
 	}
 	if val, ok := os.LookupEnv("MOVE2KUBE_UI_GIT_COMMIT_HASH"); ok {
-		x.GitCommit = val
+		uiVersion.GitCommit = val
 	}
 	if val, ok := os.LookupEnv("MOVE2KUBE_UI_GIT_TREE_STATUS"); ok {
-		x.GitTreeState = val
+		uiVersion.GitTreeState = val
 	}
-	if xBytes, err := yaml.Marshal(x); err != nil {
-		info["ui_version"] = string(xBytes)
+	info["ui_version"] = "unknown"
+	if uiVersionBytes, err := yaml.Marshal(uiVersion); err != nil {
+		logrus.Errorf("failed to marshal the support info for the UI %+v to yaml. Error: %q", uiVersion, err)
 	} else {
-		logrus.Errorf("failed to marshal the support info for the UI %+v to yaml. Error: %q", x, err)
+		info["ui_version"] = string(uiVersionBytes)
 	}
-	info["api_image"] = "unknown"
-	if val, ok := os.LookupEnv("MOVE2KUBE_API_IMAGE_HASH"); ok {
-		info["api_image"] = val
-	}
-	info["ui_image"] = "unknown"
-	if val, ok := os.LookupEnv("MOVE2KUBE_UI_IMAGE_HASH"); ok {
-		info["ui_image"] = val
-	}
-	info["docker"] = ("docker socket is mounted")
+	info["docker"] = "docker socket is mounted"
 	if _, err := os.Stat("/var/run/docker.sock"); err != nil {
 		if os.IsNotExist(err) {
 			info["docker"] = "docker socket is not mounted"
@@ -208,18 +199,16 @@ func (*FileSystem) GetSupportInfo() map[string]string {
 }
 
 // Download returns the app binary
-func (*FileSystem) Download() (file io.Reader, filename string) {
+func (*FileSystem) Download() (io.Reader, string, error) {
 	path, err := exec.LookPath(common.APP_NAME)
 	if err != nil {
-		logrus.Warnf("Unable to find "+common.APP_NAME+" : %v", err)
-		return nil, ""
+		return nil, "", fmt.Errorf("unable to find the app executable named '%s' . Error: %q", common.APP_NAME, err)
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		logrus.Errorf("failed to open the file at path %s . Error: %q", path, err)
-		return nil, ""
+		return nil, "", fmt.Errorf("failed to open the file at path %s . Error: %q", path, err)
 	}
-	return f, filepath.Base(path)
+	return f, filepath.Base(path), nil
 }
 
 // ListWorkspaceIds returns the list of workspace Ids
@@ -1160,7 +1149,7 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 	if err != nil {
 		return types.ErrorValidation{Reason: fmt.Sprintf("failed to normalize the project name %s . Error: %q", project.Name, err)}
 	}
-	cmdArgs := []string{"plan", "--name", normName, "--source", currentRunSrcDir, "--plan-progress-port", cast.ToString(port)}
+	cmdArgs := []string{"plan", "--name", normName, "--source", currentRunSrcDir, "--plan-progress-port", cast.ToString(port), "--log-file", M2K_CLI_LOG_FILE}
 	verbose := debugMode || isVerbose()
 	if verbose {
 		cmdArgs = append(cmdArgs, "--log-level", "trace")
@@ -1189,48 +1178,44 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 		return err
 	}
 	outCh := make(chan string, 10)
-	scannerStdout := bufio.NewScanner(stdout)
-	scannerStdout.Split(bufio.ScanLines)
+	stdoutReader := bufio.NewReader(stdout)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
-		for scannerStdout.Scan() {
-			text := scannerStdout.Text()
-			updatedText := strings.TrimSpace(TIMESTAMP_REGEXP.ReplaceAllString(text, message))
+		text, err := stdoutReader.ReadString('\n')
+		for err == nil {
+			updatedText := strings.TrimSpace(TIMESTAMP_REGEXP.ReplaceAllLiteralString(text, message))
 			if updatedText != "" {
 				outCh <- updatedText
 			}
+			text, err = stdoutReader.ReadString('\n')
 		}
-		if err := scannerStdout.Err(); err != nil {
-			logrus.Errorf("error occurred while fetching the stdout of move2kube plan. Error: %q", err)
-		}
+		logrus.Debugf("failed to fetch the stdout of move2kube plan. Error: %q", err)
 		wg.Done()
 	}()
-	scannerStderr := bufio.NewScanner(stderr)
-	scannerStderr.Split(bufio.ScanLines)
+	stderrReader := bufio.NewReader(stderr)
 	wg.Add(1)
 	go func() {
-		for scannerStderr.Scan() {
-			text := scannerStderr.Text()
-			updatedText := strings.TrimSpace(TIMESTAMP_REGEXP.ReplaceAllString(text, message))
+		text, err := stderrReader.ReadString('\n')
+		for err == nil {
+			updatedText := strings.TrimSpace(TIMESTAMP_REGEXP.ReplaceAllLiteralString(text, message))
 			if updatedText != "" {
 				outCh <- updatedText
 			}
+			text, err = stderrReader.ReadString('\n')
 		}
-		if err := scannerStderr.Err(); err != nil {
-			logrus.Errorf("error occurred while fetching the stderr of move2kube plan. Error: %q", err)
-		}
+		logrus.Debugf("failed to fetch the stderr of move2kube plan. Error: %q", err)
 		wg.Done()
 	}()
 	go func() {
 		wg.Wait()
 		close(outCh)
 	}()
-	for t := range outCh {
+	for outputLine := range outCh {
 		if verbose {
-			generateVerboseLogs(t)
+			generateVerboseLogs(outputLine)
 		} else {
-			logrus.Info(t)
+			logrus.Info(outputLine)
 		}
 	}
 	// release lock
@@ -1252,7 +1237,7 @@ func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths [
 	if err != nil {
 		return fmt.Errorf("failed to convert the port '%d' to a string. Error: %q", port, err)
 	}
-	cmdArgs := []string{"transform", "--qa-disable-cli", "--qa-port", portStr, "--source", currentRunSrcDir, "--output", currentRunOutDir}
+	cmdArgs := []string{"transform", "--qa-disable-cli", "--qa-port", portStr, "--source", currentRunSrcDir, "--output", currentRunOutDir, "--log-file", M2K_CLI_LOG_FILE}
 	verbose := debugMode || isVerbose()
 	if verbose {
 		cmdArgs = append(cmdArgs, "--log-level", "trace")
@@ -1282,30 +1267,32 @@ func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths [
 	}
 	wg := sync.WaitGroup{}
 	outCh := make(chan string, 10)
-	scannerStdout := bufio.NewScanner(stdout)
-	scannerStdout.Split(bufio.ScanLines)
+	stdoutReader := bufio.NewReader(stdout)
 	wg.Add(1)
 	go func() {
-		for scannerStdout.Scan() {
-			text := scannerStdout.Text()
-			updatedText := strings.TrimSpace(TIMESTAMP_REGEXP.ReplaceAllString(text, message))
+		text, err := stdoutReader.ReadString('\n')
+		for err == nil {
+			updatedText := strings.TrimSpace(TIMESTAMP_REGEXP.ReplaceAllLiteralString(text, message))
 			if updatedText != "" {
 				outCh <- updatedText
 			}
+			text, err = stdoutReader.ReadString('\n')
 		}
+		logrus.Debugf("failed to fetch the stdout of move2kube transform. Error: %q", err)
 		wg.Done()
 	}()
-	scannerStderr := bufio.NewScanner(stderr)
-	scannerStderr.Split(bufio.ScanLines)
+	stderrReader := bufio.NewReader(stderr)
 	wg.Add(1)
 	go func() {
-		for scannerStderr.Scan() {
-			text := scannerStderr.Text()
-			updatedText := strings.TrimSpace(TIMESTAMP_REGEXP.ReplaceAllString(text, message))
+		text, err := stderrReader.ReadString('\n')
+		for err == nil {
+			updatedText := strings.TrimSpace(TIMESTAMP_REGEXP.ReplaceAllLiteralString(text, message))
 			if updatedText != "" {
 				outCh <- updatedText
 			}
+			text, err = stderrReader.ReadString('\n')
 		}
+		logrus.Debugf("failed to fetch the stderr of move2kube transform. Error: %q", err)
 		wg.Done()
 	}()
 	go func() {
@@ -1344,23 +1331,28 @@ func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths [
 	if err := fs.UpdateProject(workspaceId, project); err != nil {
 		return fmt.Errorf("failed to update the project to finish the transformation. Error: %q", err)
 	}
-	cleanUpAfterTransform(currentRunDir)
+	if common.Config.CleanUpAfterTransform {
+		if err := cleanUpAfterTransform(currentRunDir); err != nil {
+			logrus.Errorf("failed to clean up after transformation finished. Error: %q", err)
+		}
+	}
 	return nil
 }
 
-func cleanUpAfterTransform(currentRunDir string) {
+func cleanUpAfterTransform(currentRunDir string) error {
 	sourcesPath := filepath.Join(currentRunDir, SOURCES_DIR)
 	if err := os.RemoveAll(sourcesPath); err != nil {
-		logrus.Errorf("failed to clean up the sources directory at path %s after transformation finished. Error: %q", sourcesPath, err)
+		return fmt.Errorf("failed to clean up the sources directory at path %s . Error: %q", sourcesPath, err)
 	}
 	custsPath := filepath.Join(currentRunDir, CUSTOMIZATIONS_DIR)
 	if err := os.RemoveAll(custsPath); err != nil {
-		logrus.Errorf("failed to clean up the customizations directory at path %s after transformation finished. Error: %q", custsPath, err)
+		return fmt.Errorf("failed to clean up the customizations directory at path %s . Error: %q", custsPath, err)
 	}
 	configsPath := filepath.Join(currentRunDir, CONFIGS_DIR)
 	if err := os.RemoveAll(configsPath); err != nil {
-		logrus.Errorf("failed to clean up the configs directory at path %s after transformation finished. Error: %q", configsPath, err)
+		return fmt.Errorf("failed to clean up the configs directory at path %s . Error: %q", configsPath, err)
 	}
+	return nil
 }
 
 func copyOverPlanConfigAndQACache(srcDir, destDir string) error {
@@ -1558,7 +1550,7 @@ func getConfigPaths(configsDir string, project types.Project) ([]string, error) 
 			continue
 		}
 		times = append(times, t.Unix())
-		configPaths = append(configPaths, filepath.Join(configsDir, inp.Id))
+		configPaths = append(configPaths, filepath.Join(configsDir, inp.NormalizedName))
 	}
 	sort.Sort(mySortable{ids: configPaths, times: times})
 	return configPaths, nil

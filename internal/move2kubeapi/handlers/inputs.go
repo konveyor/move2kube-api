@@ -36,7 +36,7 @@ func HandleCreateProjectInput(w http.ResponseWriter, r *http.Request) {
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) {
-		logrus.Error("invalid id. Actual:", projectId)
+		logrus.Errorf("invalid id. Actual: %s %s", workspaceId, projectId)
 		sendErrorJSON(w, "invalid id", http.StatusBadRequest)
 		return
 	}
@@ -99,7 +99,7 @@ func HandleReadProjectInput(w http.ResponseWriter, r *http.Request) {
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	projInputId := mux.Vars(r)[PROJECT_INPUT_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) || !common.IsValidId(projInputId) {
-		logrus.Error("invalid id. Actual:", projectId)
+		logrus.Errorf("invalid id. Actual: %s %s %s", workspaceId, projectId, projInputId)
 		sendErrorJSON(w, "invalid id", http.StatusBadRequest)
 		return
 	}
@@ -131,7 +131,7 @@ func HandleDeleteProjectInput(w http.ResponseWriter, r *http.Request) {
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	projInputId := mux.Vars(r)[PROJECT_INPUT_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) || !common.IsValidId(projInputId) {
-		logrus.Error("invalid id. Actual:", projectId)
+		logrus.Errorf("invalid id. Actual: %s %s %s", workspaceId, projectId, projInputId)
 		sendErrorJSON(w, "invalid id", http.StatusBadRequest)
 		return
 	}
