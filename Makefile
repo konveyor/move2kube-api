@@ -238,5 +238,5 @@ endif
 ifdef DOCKER_CMD
 	${CONTAINER_TOOL} run --rm -p 8080:8080 -v /var/run/docker.sock:/var/run/docker.sock -v ${PWD}/:/workspace ${REGISTRYNS}/${BINNAME}:${VERSION}
 else
-	${CONTAINER_TOOL} run --rm -it -p 8080:8080 --network=bridge ${REGISTRYNS}/${BINNAME}:${VERSION}
+	${CONTAINER_TOOL} run --rm -p 8080:8080 --network=bridge ${REGISTRYNS}/${BINNAME}:${VERSION}
 endif
