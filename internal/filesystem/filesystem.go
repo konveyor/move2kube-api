@@ -1550,7 +1550,7 @@ func getConfigPaths(configsDir string, project types.Project) ([]string, error) 
 			continue
 		}
 		times = append(times, t.Unix())
-		configPaths = append(configPaths, filepath.Join(configsDir, inp.Id))
+		configPaths = append(configPaths, filepath.Join(configsDir, inp.NormalizedName))
 	}
 	sort.Sort(mySortable{ids: configPaths, times: times})
 	return configPaths, nil
