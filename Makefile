@@ -205,7 +205,7 @@ info: ## Get version info
 .PHONY: cbuild
 cbuild: ## Build container image
 ifndef CONTAINER_TOOL
-$(error No container tool (docker, podman) found in your environment. Please, install one)
+	$(error No container tool (docker, podman) found in your environment. Please, install one)
 endif
 
 	@echo "Building image with $(CONTAINER_TOOL)"
@@ -218,7 +218,7 @@ endif
 .PHONY: cpush
 cpush: ## Push container image
 ifndef CONTAINER_TOOL
-$(error No container tool (docker, podman) found in your environment. Please, install one)
+	$(error No container tool (docker, podman) found in your environment. Please, install one)
 endif
 
 	@echo "Pushing image with $(CONTAINER_TOOL)"
@@ -230,7 +230,7 @@ endif
 .PHONY: crun
 crun: ## Run container image
 ifndef CONTAINER_TOOL
-$(error No container tool (docker, podman) found in your environment. Please, install one)
+	$(error No container tool (docker, podman) found in your environment. Please, install one)
 endif
 
 	@echo "Running image with $(CONTAINER_TOOL)"
