@@ -60,6 +60,16 @@ LDFLAGS += -X github.com/konveyor/${BINNAME}/cmd/version.gitCommit=${GIT_COMMIT}
 LDFLAGS += -X github.com/konveyor/${BINNAME}/cmd/version.gitTreeState=${GIT_DIRTY}
 LDFLAGS += -extldflags "-static"
 
+# Setting container tool
+DOCKER_CMD := $(shell command -v docker 2> /dev/null)
+PODMAN_CMD := $(shell command -v podman 2> /dev/null)
+
+ifdef DOCKER_CMD
+	CONTAINER_TOOL = 'docker'
+else ifdef PODMAN_CMD
+	CONTAINER_TOOL = 'podman'
+endif
+
 # HELP
 # This will output the help for each task
 .PHONY: help
@@ -190,21 +200,43 @@ info: ## Get version info
 	@echo "Git Commit:        ${GIT_COMMIT}"
 	@echo "Git Tree State:    ${GIT_DIRTY}"
 
-# -- Docker --
+# -- Container Image --
 
 .PHONY: cbuild
-cbuild: ## Build docker image
-	docker build -t ${REGISTRYNS}/${BINNAME}-builder:${VERSION} --cache-from ${REGISTRYNS}/${BINNAME}-builder:latest --target build_base                          --build-arg VERSION=${VERSION} --build-arg GO_VERSION=${GO_VERSION} .
-	docker build -t ${REGISTRYNS}/${BINNAME}:${VERSION}         --cache-from ${REGISTRYNS}/${BINNAME}-builder:latest --cache-from ${REGISTRYNS}/${BINNAME}:latest --build-arg VERSION=${VERSION} --build-arg GO_VERSION=${GO_VERSION} .
-	docker tag ${REGISTRYNS}/${BINNAME}-builder:${VERSION} ${REGISTRYNS}/${BINNAME}-builder:latest
-	docker tag ${REGISTRYNS}/${BINNAME}:${VERSION} ${REGISTRYNS}/${BINNAME}:latest
+cbuild: ## Build container image
+ifndef CONTAINER_TOOL
+	$(error No container tool (docker, podman) found in your environment. Please, install one)
+endif
+
+	@echo "Building image with $(CONTAINER_TOOL)"
+
+	${CONTAINER_TOOL} build -t ${REGISTRYNS}/${BINNAME}-builder:${VERSION} --cache-from ${REGISTRYNS}/${BINNAME}-builder:latest --target build_base                          --build-arg VERSION=${VERSION} --build-arg GO_VERSION=${GO_VERSION} .
+	${CONTAINER_TOOL} build -t ${REGISTRYNS}/${BINNAME}:${VERSION}         --cache-from ${REGISTRYNS}/${BINNAME}-builder:latest --cache-from ${REGISTRYNS}/${BINNAME}:latest --build-arg VERSION=${VERSION} --build-arg GO_VERSION=${GO_VERSION} .
+	${CONTAINER_TOOL} tag ${REGISTRYNS}/${BINNAME}-builder:${VERSION} ${REGISTRYNS}/${BINNAME}-builder:latest
+	${CONTAINER_TOOL} tag ${REGISTRYNS}/${BINNAME}:${VERSION} ${REGISTRYNS}/${BINNAME}:latest
 
 .PHONY: cpush
-cpush: ## Push docker image
+cpush: ## Push container image
+ifndef CONTAINER_TOOL
+	$(error No container tool (docker, podman) found in your environment. Please, install one)
+endif
+
+	@echo "Pushing image with $(CONTAINER_TOOL)"
+
 	# To help with reusing layers and hence speeding up build
-	docker push ${REGISTRYNS}/${BINNAME}-builder:${VERSION}
-	docker push ${REGISTRYNS}/${BINNAME}:${VERSION}
+	${CONTAINER_TOOL} push ${REGISTRYNS}/${BINNAME}-builder:${VERSION}
+	${CONTAINER_TOOL} push ${REGISTRYNS}/${BINNAME}:${VERSION}
 
 .PHONY: crun
-crun: ## Run docker image
-	docker run --rm -p 8080:8080 -v /var/run/docker.sock:/var/run/docker.sock -v ${PWD}/:/workspace ${REGISTRYNS}/${BINNAME}:${VERSION}
+crun: ## Run container image
+ifndef CONTAINER_TOOL
+	$(error No container tool (docker, podman) found in your environment. Please, install one)
+endif
+
+	@echo "Running image with $(CONTAINER_TOOL)"
+
+ifdef DOCKER_CMD
+	${CONTAINER_TOOL} run --rm -p 8080:8080 -v /var/run/docker.sock:/var/run/docker.sock -v ${PWD}/:/workspace ${REGISTRYNS}/${BINNAME}:${VERSION}
+else
+	${CONTAINER_TOOL} run --rm -p 8080:8080 --network=bridge ${REGISTRYNS}/${BINNAME}:${VERSION}
+endif
