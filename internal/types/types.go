@@ -36,6 +36,7 @@ type ConfigT struct {
 	CloudEventsEnabled           bool     `mapstructure:"cloud-events-enabled"`
 	Port                         int      `mapstructure:"port"`
 	CookieMaxAge                 int      `mapstructure:"cookie-max-age"`
+	MaxUploadSize                int64    `mapstructure:"max-upload-size"`
 	LogLevel                     string   `mapstructure:"log-level"`
 	DataDir                      string   `mapstructure:"data-dir"`
 	StaticFilesDir               string   `mapstructure:"static-files-dir"`
