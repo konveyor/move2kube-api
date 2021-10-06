@@ -52,6 +52,7 @@ For more information, visit https://move2kube.konveyor.io/`,
 	rootCmd.PersistentFlags().String("log-level", logrus.InfoLevel.String(), `Set the logging level. Options are: ["panic", "fatal", "error", "warn", "info", "debug", "trace"]`)
 	rootCmd.Flags().IntP("port", "p", 8080, "Port to listen on.")
 	rootCmd.Flags().Int("cookie-max-age", 2*3600, "Max age for session cookies (in seconds).")
+	rootCmd.Flags().Int("max-upload-size", 100*1024*1024, "Max size (in bytes) for file uploads.")
 	rootCmd.Flags().Bool("auth-enabled", false, "Enable authentication and authorization.")
 	rootCmd.Flags().Bool("secure-cookies", false, "Send cookies only if it is a https TLS connection. Turn this on in production environments.")
 	rootCmd.Flags().Bool("clean-up-after-transform", false, "Delete extra files after a transformation is finished. Helps save storage space.")

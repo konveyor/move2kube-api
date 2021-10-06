@@ -40,10 +40,16 @@ func HandleCreateProjectInput(w http.ResponseWriter, r *http.Request) {
 		sendErrorJSON(w, "invalid id", http.StatusBadRequest)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, common.Config.MaxUploadSize)
+	if err := r.ParseMultipartForm(common.Config.MaxUploadSize); err != nil {
+		logrus.Errorf("failed to parse the request body as multipart/form-data. Error: %q", err)
+		sendErrorJSON(w, "failed to parse the request body as multipart/form-data", http.StatusBadRequest)
+		return
+	}
 	file, handler, err := r.FormFile("file")
 	if err != nil {
 		logrus.Errorf("failed to get the file from the request body. Error: %q", err)
-		sendErrorJSON(w, "failed to get the file from the request body.", http.StatusBadRequest)
+		sendErrorJSON(w, "failed to get the file from the request body", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
