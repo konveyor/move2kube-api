@@ -24,12 +24,13 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/konveyor/move2kube-api/internal/common"
 	"github.com/konveyor/move2kube-api/internal/types"
-	"github.com/sirupsen/logrus"
 )
 
 // HandleListProjects handles listing projects
 func HandleListProjects(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleListProjects start")
+	defer logrus.Trace("HandleListProjects end")
 	routeVars := mux.Vars(r)
 	workspaceId := routeVars[WORKSPACE_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) {
@@ -54,12 +55,13 @@ func HandleListProjects(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	logrus.Trace("HandleListProjects end")
 }
 
 // HandleCreateProject handles creating a new project
 func HandleCreateProject(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleCreateProject start")
+	defer logrus.Trace("HandleCreateProject end")
 	routeVars := mux.Vars(r)
 	workspaceId := routeVars[WORKSPACE_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) {
@@ -104,12 +106,13 @@ func HandleCreateProject(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	logrus.Trace("HandleCreateProject end")
 }
 
 // HandleReadProject handles reading an existing project
 func HandleReadProject(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleReadProject start")
+	defer logrus.Trace("HandleReadProject end")
 	routeVars := mux.Vars(r)
 	workspaceId := routeVars[WORKSPACE_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) {
@@ -135,12 +138,13 @@ func HandleReadProject(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	logrus.Trace("HandleReadProject end")
 }
 
 // HandleDeleteProject handles deleting an existing project
 func HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleDeleteProject start")
+	defer logrus.Trace("HandleDeleteProject end")
 	routeVars := mux.Vars(r)
 	workspaceId := routeVars[WORKSPACE_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) {
@@ -160,5 +164,4 @@ func HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	logrus.Infof("project with id %s has been deleted successfully", projectId)
-	logrus.Trace("HandleDeleteProject end")
 }

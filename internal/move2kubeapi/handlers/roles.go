@@ -27,12 +27,13 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/konveyor/move2kube-api/internal/common"
 	"github.com/konveyor/move2kube-api/internal/types"
-	"github.com/sirupsen/logrus"
 )
 
 // HandleListRoles handles listing all the roles
 func HandleListRoles(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleListRoles start")
+	defer logrus.Trace("HandleListRoles end")
 	accessToken, err := common.GetAccesTokenFromAuthzHeader(r)
 	if err != nil {
 		logrus.Debugf("failed to get the access token from the request. Error: %q", err)
@@ -65,21 +66,24 @@ func HandleListRoles(w http.ResponseWriter, r *http.Request) {
 	}
 	m2kRoleInfosBytes, err := json.Marshal(m2kRoleInfos)
 	if err != nil {
-		logrus.Debug("Error:", err)
+		logrus.Debugf("failed to marshal the role information to json. Error: %q", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set(common.CONTENT_TYPE_HEADER, common.CONTENT_TYPE_JSON)
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(m2kRoleInfosBytes); err != nil {
-		logrus.Debug("Error:", err)
+		logrus.Debugf("failed to write the role information to the response. Error: %q", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
-	logrus.Trace("HandleListRoles end")
 }
 
 // HandleCreateRole handles creating a new role
 func HandleCreateRole(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleCreateRole start")
+	defer logrus.Trace("HandleCreateRole end")
 	accessToken, err := common.GetAccesTokenFromAuthzHeader(r)
 	if err != nil {
 		logrus.Debugf("failed to get the access token from the request. Error: %q", err)
@@ -135,12 +139,13 @@ func HandleCreateRole(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(resultBytes); err != nil {
 		logrus.Errorf("failed to write the response body. Error: %q", err)
 	}
-	logrus.Trace("HandleCreateRole end")
 }
 
 // HandleReadRole handles reading an existing role
 func HandleReadRole(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleReadRole start")
+	defer logrus.Trace("HandleReadRole end")
 	accessToken, err := common.GetAccesTokenFromAuthzHeader(r)
 	if err != nil {
 		logrus.Debugf("failed to get the access token from the request. Error: %q", err)
@@ -167,12 +172,13 @@ func HandleReadRole(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(m2kRoleInfoBytes); err != nil {
 		logrus.Errorf("failed to write the response body. Error: %q", err)
 	}
-	logrus.Trace("HandleReadRole end")
 }
 
 // HandleUpdateRole handles updating an existing role
 func HandleUpdateRole(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleUpdateRole start")
+	defer logrus.Trace("HandleUpdateRole end")
 	accessToken, err := common.GetAccesTokenFromAuthzHeader(r)
 	if err != nil {
 		logrus.Debugf("failed to get the access token from the request. Error: %q", err)
@@ -236,12 +242,13 @@ func HandleUpdateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-	logrus.Trace("HandleUpdateRole end")
 }
 
 // HandleDeleteRole handles deleting an existing role
 func HandleDeleteRole(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleDeleteRole start")
+	defer logrus.Trace("HandleDeleteRole end")
 	accessToken, err := common.GetAccesTokenFromAuthzHeader(r)
 	if err != nil {
 		logrus.Debugf("failed to get the access token from the request. Error: %q", err)
@@ -256,5 +263,4 @@ func HandleDeleteRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-	logrus.Trace("HandleDeleteRole end")
 }

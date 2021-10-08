@@ -27,12 +27,13 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/konveyor/move2kube-api/internal/common"
 	"github.com/konveyor/move2kube-api/internal/types"
-	"github.com/sirupsen/logrus"
 )
 
 // HandleCreateProjectInput is the handler for creating a project input
 func HandleCreateProjectInput(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleCreateProjectInput start")
+	defer logrus.Trace("HandleCreateProjectInput end")
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) {
@@ -95,12 +96,13 @@ func HandleCreateProjectInput(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	logrus.Trace("HandleCreateProjectInput end")
 }
 
 // HandleReadProjectInput is the handler for reading a project input
 func HandleReadProjectInput(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleReadProjectInput start")
+	defer logrus.Trace("HandleReadProjectInput end")
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	projInputId := mux.Vars(r)[PROJECT_INPUT_ID_ROUTE_VAR]
@@ -127,12 +129,13 @@ func HandleReadProjectInput(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	logrus.Trace("HandleReadProjectInput end")
 }
 
 // HandleDeleteProjectInput is the handler for deleting a project input
 func HandleDeleteProjectInput(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleDeleteProjectInput start")
+	defer logrus.Trace("HandleDeleteProjectInput end")
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	projInputId := mux.Vars(r)[PROJECT_INPUT_ID_ROUTE_VAR]
@@ -151,5 +154,4 @@ func HandleDeleteProjectInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-	logrus.Trace("HandleDeleteProjectInput end")
 }

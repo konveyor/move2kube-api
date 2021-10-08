@@ -23,12 +23,13 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/konveyor/move2kube-api/internal/common"
 	"github.com/konveyor/move2kube-api/internal/types"
-	"github.com/sirupsen/logrus"
 )
 
 // HandleGetQuestion handles getting the next question of an ongoing transformation
 func HandleGetQuestion(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleGetQuestion start")
+	defer logrus.Trace("HandleGetQuestion end")
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	projOutputId := mux.Vars(r)[PROJECT_OUTPUT_ID_ROUTE_VAR]
@@ -59,12 +60,13 @@ func HandleGetQuestion(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	logrus.Trace("HandleGetQuestion end")
 }
 
 // HandlePostSolution handles posting the solution to the current question of an ongoing transformation
 func HandlePostSolution(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandlePostSolution start")
+	defer logrus.Trace("HandlePostSolution end")
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	projOutputId := mux.Vars(r)[PROJECT_OUTPUT_ID_ROUTE_VAR]
@@ -94,5 +96,4 @@ func HandlePostSolution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-	logrus.Trace("HandlePostSolution end")
 }

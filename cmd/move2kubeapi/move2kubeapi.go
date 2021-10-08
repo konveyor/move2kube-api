@@ -35,9 +35,9 @@ func getRootCommand() *cobra.Command {
 This server can also be configured using environment variables and/or a config file.
 The order of precedence for reading configuration is:
 command line flag > environment variable > config file > default value
-The environment variable name is just the flag name capitalized and prefixed with "M2K"
+The environment variable name is just the flag name capitalized, prefixed with "M2K" and all hyphens replaced with underscores.
 Example:
-	M2K_PORT=8080 M2K_SECURE_COOKIES=true M2K_STATIC_FILES_DIR='path/to/dist' move2kube-api --log_level trace
+	M2K_PORT=8080 M2K_SECURE_COOKIES=true M2K_STATIC_FILES_DIR='path/to/dist' move2kube-api --log-level trace
 
 For more information, visit https://move2kube.konveyor.io/`,
 		Args: cobra.NoArgs,
@@ -53,6 +53,8 @@ For more information, visit https://move2kube.konveyor.io/`,
 	rootCmd.Flags().IntP("port", "p", 8080, "Port to listen on.")
 	rootCmd.Flags().Int("cookie-max-age", 2*3600, "Max age for session cookies (in seconds).")
 	rootCmd.Flags().Int("max-upload-size", 100*1024*1024, "Max size (in bytes) for file uploads.")
+	rootCmd.Flags().Int("plan-timeout-seconds", 20*60, "No. of seconds to wait before cancelling ongoing plan generation. Negative value means no timeout.")
+	rootCmd.Flags().Int("transform-timeout-seconds", -1, "No. of seconds to wait before cancelling ongoing transformation. Negative value means no timeout.")
 	rootCmd.Flags().Bool("auth-enabled", false, "Enable authentication and authorization.")
 	rootCmd.Flags().Bool("secure-cookies", false, "Send cookies only if it is a https TLS connection. Turn this on in production environments.")
 	rootCmd.Flags().Bool("clean-up-after-transform", false, "Delete extra files after a transformation is finished. Helps save storage space.")

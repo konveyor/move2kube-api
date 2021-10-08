@@ -26,12 +26,13 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/konveyor/move2kube-api/internal/common"
 	"github.com/konveyor/move2kube-api/internal/types"
-	"github.com/sirupsen/logrus"
 )
 
 // HandleStartTransformation handles starting a new transformation
 func HandleStartTransformation(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleStartTransformation start")
+	defer logrus.Trace("HandleStartTransformation end")
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) {
@@ -92,12 +93,13 @@ func HandleStartTransformation(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	logrus.Trace("HandleStartTransformation end")
 }
 
 // HandleReadProjectOutput handles reading the output of a transformation
 func HandleReadProjectOutput(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleReadProjectOutput start")
+	defer logrus.Trace("HandleReadProjectOutput end")
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	projOutputId := mux.Vars(r)[PROJECT_OUTPUT_ID_ROUTE_VAR]
@@ -111,6 +113,10 @@ func HandleReadProjectOutput(w http.ResponseWriter, r *http.Request) {
 		logrus.Errorf("failed to get the project output. Error: %q", err)
 		if _, ok := err.(types.ErrorDoesNotExist); ok {
 			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if e, ok := err.(types.ErrorValidation); ok {
+			sendErrorJSON(w, e.Reason, http.StatusBadRequest)
 			return
 		}
 		if _, ok := err.(types.ErrorOngoing); ok {
@@ -128,12 +134,13 @@ func HandleReadProjectOutput(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	logrus.Trace("HandleReadProjectOutput end")
 }
 
 // HandleDeleteProjectOutput handles deleting the output of a transformation
 func HandleDeleteProjectOutput(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleDeleteProjectOutput start")
+	defer logrus.Trace("HandleDeleteProjectOutput end")
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	projOutputId := mux.Vars(r)[PROJECT_OUTPUT_ID_ROUTE_VAR]
@@ -157,5 +164,4 @@ func HandleDeleteProjectOutput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-	logrus.Trace("HandleDeleteProjectOutput end")
 }

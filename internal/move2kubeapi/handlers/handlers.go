@@ -82,6 +82,7 @@ func Setup() error {
 
 // HandleSupport is the handler for getting support information
 func HandleSupport(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleSupport start")
 	supportInfo := m2kFS.GetSupportInfo()
 	w.Header().Set(common.CONTENT_TYPE_HEADER, common.CONTENT_TYPE_JSON)

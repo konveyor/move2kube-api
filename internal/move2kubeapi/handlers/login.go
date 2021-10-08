@@ -27,12 +27,13 @@ import (
 	"github.com/konveyor/move2kube-api/internal/common"
 	"github.com/konveyor/move2kube-api/internal/sessions"
 	"github.com/konveyor/move2kube-api/internal/types"
-	"github.com/sirupsen/logrus"
 )
 
 // HandleLogin logs the user in and gets the authorization code.
 func HandleLogin(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleLogin start")
+	defer logrus.Trace("HandleLogin end")
 	if sessions.IsLoggedIn(r) {
 		logrus.Error("the user is already logged in")
 		http.Redirect(w, r, "/", http.StatusFound)
@@ -73,12 +74,13 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 	loginURL := authserver.GetLoginURL(sessInfo.GetCSRFToken())
 	logrus.Debugf("redirecting the user to %s for login", loginURL)
 	http.Redirect(w, r, loginURL, http.StatusFound)
-	logrus.Trace("HandleLogin end")
 }
 
 // HandleLoginCallback gets the access and refresh tokens for the user given the authorization code.
 func HandleLoginCallback(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleLoginCallback start")
+	defer logrus.Trace("HandleLoginCallback end")
 	if sessions.IsLoggedIn(r) {
 		logrus.Error("the user is already logged in")
 		http.Redirect(w, r, "/", http.StatusFound)
@@ -165,12 +167,13 @@ func HandleLoginCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	// redirect the user back to where they started the login flow
 	http.Redirect(w, r, redirectPath, http.StatusFound)
-	logrus.Trace("HandleLoginCallback end")
 }
 
 // HandleLogout logs out the user.
 func HandleLogout(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleLogout start")
+	defer logrus.Trace("HandleLogout end")
 	if !sessions.IsLoggedIn(r) {
 		logrus.Error("The user is trying to logout without logging in")
 		w.Header().Set(common.AUTHENTICATE_HEADER, common.AUTHENTICATE_HEADER_MSG)
@@ -213,12 +216,13 @@ func HandleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
-	logrus.Trace("HandleLogout end")
 }
 
 // HandleUserProfile is the handler for getting the user profile
 func HandleUserProfile(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleUserProfile start")
+	defer logrus.Trace("HandleUserProfile end")
 	if !sessions.IsLoggedIn(r) {
 		logrus.Error("the user is trying to get the user profile information without logging in")
 		w.Header().Set(common.AUTHENTICATE_HEADER, common.AUTHENTICATE_HEADER_MSG)
@@ -249,5 +253,4 @@ func HandleUserProfile(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	logrus.Trace("HandleUserProfile end")
 }
