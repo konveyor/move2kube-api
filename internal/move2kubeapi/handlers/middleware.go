@@ -17,28 +17,53 @@ limitations under the License.
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"path"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/konveyor/move2kube-api/internal/authserver"
 	"github.com/konveyor/move2kube-api/internal/common"
 	"github.com/konveyor/move2kube-api/internal/sessions"
 	"github.com/konveyor/move2kube-api/internal/types"
-	"github.com/sirupsen/logrus"
+	_logrus "github.com/sirupsen/logrus"
 )
+
+type ctxKeyT string
+
+const (
+	requestIdKey ctxKeyT = "request-id"
+	loggerKey    ctxKeyT = "logger"
+)
+
+// GetRequestId returns the request id from the request's context
+func GetRequestId(r *http.Request) string {
+	return r.Context().Value(requestIdKey).(string)
+}
+
+// GetLogger returns the logger from the request's context
+func GetLogger(r *http.Request) *_logrus.Entry {
+	return r.Context().Value(loggerKey).(*_logrus.Entry)
+}
 
 // GetLoggingMiddleWare returns the middleware that logs each request method and URL
 func GetLoggingMiddleWare(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logrus.Infof("%s %s", r.Method, r.URL)
-		next.ServeHTTP(w, r)
+		ctx := r.Context()
+		requestId := uuid.NewString()
+		ctx = context.WithValue(ctx, requestIdKey, requestId)
+		logger := _logrus.WithField("request-id", requestId)
+		ctx = context.WithValue(ctx, loggerKey, logger)
+		logger.Info(r.Method, " ", r.URL.String())
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
 // GetAuthorizationMiddleWare returns the middleware that checks for authorization
 func GetAuthorizationMiddleWare(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logrus := GetLogger(r)
 		logrus.Trace("GetAuthorizationMiddleWare start")
 		resPath := path.Clean(r.URL.Path)
 		resPath = strings.TrimPrefix(resPath, "/api/v1")

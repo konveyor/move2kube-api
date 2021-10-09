@@ -25,12 +25,13 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/konveyor/move2kube-api/internal/common"
 	"github.com/konveyor/move2kube-api/internal/types"
-	"github.com/sirupsen/logrus"
 )
 
 // HandleStartPlanning handles starting the planning for a project
 func HandleStartPlanning(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleStartPlanning start")
+	defer logrus.Trace("HandleStartPlanning end")
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) {
@@ -57,12 +58,13 @@ func HandleStartPlanning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
-	logrus.Trace("HandleStartPlanning end")
 }
 
 // HandleReadPlan handles reading the plan for a project
 func HandleReadPlan(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleReadPlan start")
+	defer logrus.Trace("HandleReadPlan end")
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) {
@@ -75,6 +77,10 @@ func HandleReadPlan(w http.ResponseWriter, r *http.Request) {
 		logrus.Debugf("failed to get the plan. Error: %q", err)
 		if _, ok := err.(types.ErrorDoesNotExist); ok {
 			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if e, ok := err.(types.ErrorValidation); ok {
+			sendErrorJSON(w, e.Reason, http.StatusBadRequest)
 			return
 		}
 		if _, ok := err.(types.ErrorOngoing); ok {
@@ -104,12 +110,13 @@ func HandleReadPlan(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	logrus.Trace("HandleReadPlan end")
 }
 
 // HandleUpdatePlan handles updating the plan for a project
 func HandleUpdatePlan(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleUpdatePlan start")
+	defer logrus.Trace("HandleUpdatePlan end")
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) {
@@ -138,12 +145,13 @@ func HandleUpdatePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-	logrus.Trace("HandleUpdatePlan end")
 }
 
 // HandleDeletePlan handles deleting the plan for a project
 func HandleDeletePlan(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleDeletePlan start")
+	defer logrus.Trace("HandleDeletePlan end")
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) {
@@ -161,5 +169,4 @@ func HandleDeletePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-	logrus.Trace("HandleDeletePlan end")
 }

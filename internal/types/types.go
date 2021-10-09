@@ -37,6 +37,8 @@ type ConfigT struct {
 	Port                         int      `mapstructure:"port"`
 	CookieMaxAge                 int      `mapstructure:"cookie-max-age"`
 	MaxUploadSize                int64    `mapstructure:"max-upload-size"`
+	PlanTimeoutSeconds           int64    `mapstructure:"plan-timeout-seconds"`
+	TransformTimeoutSeconds      int64    `mapstructure:"transform-timeout-seconds"`
 	LogLevel                     string   `mapstructure:"log-level"`
 	DataDir                      string   `mapstructure:"data-dir"`
 	StaticFilesDir               string   `mapstructure:"static-files-dir"`
@@ -344,6 +346,10 @@ const (
 	ProjectStatusPlanning ProjectStatus = "planning"
 	// ProjectStatusPlan indicates the project has a plan
 	ProjectStatusPlan ProjectStatus = "plan"
+	// ProjectStatusStalePlan indicates that the inputs have changed after the plan was last generated
+	ProjectStatusStalePlan ProjectStatus = "stale_plan"
+	// ProjectStatusPlanError indicates that an error occurred during planning
+	ProjectStatusPlanError ProjectStatus = "plan_error"
 	// ProjectStatusOutputs indicates the project has project artifacts generated
 	ProjectStatusOutputs ProjectStatus = "outputs"
 )
@@ -354,8 +360,10 @@ type ProjectOutputStatus string
 const (
 	// ProjectOutputStatusInProgress indicates that the transformation is ongoing
 	ProjectOutputStatusInProgress = "transforming"
-	// ProjectOutputStatusDone indicates that the transformation is done
-	ProjectOutputStatusDone = "done"
+	// ProjectOutputStatusDoneSuccess indicates that the transformation completed successfully
+	ProjectOutputStatusDoneSuccess = "done"
+	// ProjectOutputStatusDoneError indicates an error like if the transformation was cancelled or the timeout expired
+	ProjectOutputStatusDoneError = "error"
 )
 
 // ProjectInputType is the type of the project input

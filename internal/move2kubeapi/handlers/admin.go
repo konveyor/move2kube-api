@@ -24,12 +24,13 @@ import (
 	"strings"
 
 	"github.com/konveyor/move2kube-api/internal/common"
-	"github.com/sirupsen/logrus"
 )
 
 // HandleGetAccessToken handles access token requests
 func HandleGetAccessToken(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleGetAccessToken start")
+	defer logrus.Trace("HandleGetAccessToken end")
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		logrus.Debug("failed to get the access token. The Authorization header is missing.")
@@ -76,5 +77,4 @@ func HandleGetAccessToken(w http.ResponseWriter, r *http.Request) {
 		logrus.Errorf("failed to send the access token. Error: %q", err)
 		return
 	}
-	logrus.Trace("HandleGetAccessToken end")
 }

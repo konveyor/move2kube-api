@@ -27,12 +27,13 @@ import (
 	"github.com/konveyor/move2kube-api/internal/common"
 	"github.com/konveyor/move2kube-api/internal/sessions"
 	"github.com/konveyor/move2kube-api/internal/types"
-	"github.com/sirupsen/logrus"
 )
 
 // HandleListWorkspaces handles listing all the workspaces a user has access to
 func HandleListWorkspaces(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleListWorkspaces start")
+	defer logrus.Trace("HandleListWorkspaces end")
 	var workspaces []types.Workspace
 	if common.Config.AuthEnabled {
 		accessToken, err := common.GetAccesTokenFromAuthzHeader(r)
@@ -81,12 +82,13 @@ func HandleListWorkspaces(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	logrus.Trace("HandleListWorkspaces end")
 }
 
 // HandleCreateWorkspace handles creating a new workspace
 func HandleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleCreateWorkspace start")
+	defer logrus.Trace("HandleCreateWorkspace end")
 	defer r.Body.Close()
 	reqWorkspace := types.Workspace{}
 	if err := json.NewDecoder(r.Body).Decode(&reqWorkspace); err != nil {
@@ -119,12 +121,13 @@ func HandleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	logrus.Trace("HandleCreateWorkspace end")
 }
 
 // HandleReadWorkspace handles reading an existing workspace
 func HandleReadWorkspace(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleReadWorkspace start")
+	defer logrus.Trace("HandleReadWorkspace end")
 	routeVars := mux.Vars(r)
 	workspaceId := routeVars[WORKSPACE_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) {
@@ -171,12 +174,13 @@ func HandleReadWorkspace(w http.ResponseWriter, r *http.Request) {
 		}
 		logrus.Debug("HandleReadWorkspace CloudEvents end")
 	}
-	logrus.Trace("HandleReadWorkspace end")
 }
 
 // HandleUpdateWorkspace handles updating an existing workspace
 func HandleUpdateWorkspace(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleUpdateWorkspace start")
+	defer logrus.Trace("HandleUpdateWorkspace end")
 	routeVars := mux.Vars(r)
 	workspaceId := routeVars[WORKSPACE_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) {
@@ -232,12 +236,13 @@ func HandleUpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-	logrus.Trace("HandleUpdateWorkspace end")
 }
 
 // HandleDeleteWorkspace handles deleting an existing workspace
 func HandleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleDeleteWorkspace start")
+	defer logrus.Trace("HandleDeleteWorkspace end")
 	routeVars := mux.Vars(r)
 	workspaceId := routeVars[WORKSPACE_ID_ROUTE_VAR]
 	if !common.IsValidId(workspaceId) {
@@ -255,5 +260,4 @@ func HandleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-	logrus.Trace("HandleDeleteWorkspace end")
 }

@@ -19,6 +19,7 @@ package filesystem
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -426,6 +427,10 @@ func (fs *FileSystem) CreateProjectInput(workspaceId, projectId string, projInpu
 	if _, ok := project.Inputs[projInput.Id]; ok {
 		return types.ErrorIdAlreadyInUse{Id: projInput.Id}
 	}
+	// check lock
+	if project.Status[types.ProjectStatusPlanning] {
+		return types.ErrorOngoing{Id: projectId}
+	}
 	for _, pi := range project.Inputs {
 		if pi.NormalizedName == projInput.NormalizedName {
 			reason := fmt.Sprintf("You have already uploaded an input with the filename '%s'. Please pick a different one.", projInput.NormalizedName)
@@ -434,6 +439,7 @@ func (fs *FileSystem) CreateProjectInput(workspaceId, projectId string, projInpu
 		}
 	}
 	project.Inputs[projInput.Id] = projInput
+	project.Status[types.ProjectStatusStalePlan] = true
 	lastDir := ""
 	if projInput.Type == types.ProjectInputSources {
 		project.Status[types.ProjectStatusInputSources] = true
@@ -558,6 +564,11 @@ func (fs *FileSystem) DeleteProjectInput(workspaceId, projectId, projInputId str
 	if !ok {
 		return types.ErrorDoesNotExist{Id: projInputId}
 	}
+	// check lock
+	if project.Status[types.ProjectStatusPlanning] {
+		return types.ErrorOngoing{Id: projectId}
+	}
+	project.Status[types.ProjectStatusStalePlan] = true
 	projInputsDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_INPUTS_DIR)
 	archivePath := ""
 	archiveExpandedPath := ""
@@ -682,6 +693,9 @@ func (fs *FileSystem) ReadPlan(workspaceId, projectId string) (file io.Reader, e
 		return bytes.NewBuffer(resp.Body()), types.ErrorOngoing{Id: projectId}
 	}
 	if !project.Status[types.ProjectStatusPlan] {
+		if project.Status[types.ProjectStatusPlanError] {
+			return nil, types.ErrorValidation{Reason: "either planning was cancelled or the timeout was exceeded"}
+		}
 		return nil, types.ErrorDoesNotExist{Id: projectId}
 	}
 	planFilePath := filepath.Join(currentRunDir, M2K_PLAN_FILENAME)
@@ -699,9 +713,6 @@ func (fs *FileSystem) UpdatePlan(workspaceId, projectId string, plan io.Reader) 
 	if err != nil {
 		return err
 	}
-	if !project.Status[types.ProjectStatusPlan] {
-		return types.ErrorValidation{Reason: "the project has no plan yet. Generate a plan first."}
-	}
 	// check lock
 	if project.Status[types.ProjectStatusPlanning] {
 		return types.ErrorOngoing{Id: projectId}
@@ -716,6 +727,12 @@ func (fs *FileSystem) UpdatePlan(workspaceId, projectId string, plan io.Reader) 
 	planFilePath := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_INPUTS_DIR, EXPANDED_DIR, M2K_PLAN_FILENAME)
 	if err := ioutil.WriteFile(planFilePath, planBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to write to the plan file at path %s . Error: %q", planFilePath, err)
+	}
+	project.Status[types.ProjectStatusPlan] = true
+	project.Status[types.ProjectStatusStalePlan] = false
+	project.Status[types.ProjectStatusPlanError] = false
+	if err := fs.UpdateProject(workspaceId, project); err != nil {
+		return fmt.Errorf("failed to update the project %s in the workspace %s . Error: %q", projectId, workspaceId, err)
 	}
 	logrus.Infof("Plan updated successfully")
 	return nil
@@ -759,7 +776,7 @@ func (fs *FileSystem) ResumeTransformation(workspaceId, projectId, projOutputId 
 	if !ok {
 		return types.ErrorDoesNotExist{Id: projOutputId}
 	}
-	if projOutput.Status == types.ProjectOutputStatusDone {
+	if projOutput.Status == types.ProjectOutputStatusDoneSuccess {
 		logrus.Debugf("the transformation for output %s of project %s already finished", projOutputId, projectId)
 		return nil
 	}
@@ -926,7 +943,10 @@ func (fs *FileSystem) ReadProjectOutput(workspaceId, projectId, projOutputId str
 	if projOutput.Status == types.ProjectOutputStatusInProgress {
 		return projOutput, nil, types.ErrorOngoing{Id: projOutputId}
 	}
-	if projOutput.Status != types.ProjectOutputStatusDone {
+	if projOutput.Status != types.ProjectOutputStatusDoneSuccess {
+		if projOutput.Status == types.ProjectOutputStatusDoneError {
+			return projOutput, nil, types.ErrorValidation{Reason: fmt.Sprintf("an error occurred during transformation of the output %s of project %s", projOutputId, projectId)}
+		}
 		return projOutput, nil, types.ErrorDoesNotExist{Id: projOutputId}
 	}
 	projOutputPath := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutputId, "output.zip")
@@ -981,7 +1001,7 @@ func (fs *FileSystem) GetQuestion(workspaceId, projectId, projOutputId string) (
 	if !ok {
 		return "", types.ErrorDoesNotExist{Id: projOutputId}
 	}
-	if projOutput.Status == types.ProjectOutputStatusDone {
+	if projOutput.Status == types.ProjectOutputStatusDoneSuccess {
 		logrus.Debugf("the transformation for output %s of project %s already finished", projOutputId, projectId)
 		return "", nil
 	}
@@ -1030,7 +1050,7 @@ func (fs *FileSystem) PostSolution(workspaceId, projectId, projOutputId, solutio
 	if !ok {
 		return types.ErrorDoesNotExist{Id: projOutputId}
 	}
-	if projOutput.Status == types.ProjectOutputStatusDone {
+	if projOutput.Status == types.ProjectOutputStatusDoneSuccess {
 		logrus.Debugf("the transformation for output %s of project %s already finished", projOutputId, projectId)
 		return nil
 	}
@@ -1161,7 +1181,13 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 		cmdArgs = append(cmdArgs, "--customizations", currentRunCustDir)
 	}
 	logrus.Infof("plan cmdArgs: %+v", cmdArgs)
-	cmd := exec.Command(common.APP_NAME, cmdArgs...)
+	ctx := context.Background()
+	if common.Config.PlanTimeoutSeconds > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(common.Config.PlanTimeoutSeconds)*time.Second)
+		defer cancel()
+	}
+	cmd := exec.CommandContext(ctx, common.APP_NAME, cmdArgs...)
 	cmd.Dir = currentRunDir
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1218,13 +1244,36 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 			logrus.Info(outputLine)
 		}
 	}
+	isCtxClosed := false
+	select {
+	case <-ctx.Done():
+		logrus.Debug("ctx closed")
+		isCtxClosed = true
+	default:
+		logrus.Debug("ctx not closed")
+	}
 	// release lock
 	project, err = fs.ReadProject(workspaceId, projectId)
 	if err != nil {
+		logrus.Errorf("inside runPlan, failed to read the project after planning completed. Error: %q", err)
 		return err
 	}
 	project.Status[types.ProjectStatusPlanning] = false
 	project.Status[types.ProjectStatusPlan] = true
+	project.Status[types.ProjectStatusStalePlan] = false
+	project.Status[types.ProjectStatusPlanError] = false
+	if isCtxClosed {
+		// planning was interrupted for some reason
+		project.Status[types.ProjectStatusPlan] = false
+		project.Status[types.ProjectStatusPlanError] = true
+		if err := ctx.Err(); err == context.Canceled {
+			logrus.Errorf("planning for project %s was cancelled. Error: %q", projectId, err)
+		} else if err == context.DeadlineExceeded {
+			logrus.Errorf("planning for project %s exceeded the timeout. Error: %q", projectId, err)
+		} else {
+			logrus.Errorf("planning for project %s stopped because the context was closed. Error: %q", projectId, err)
+		}
+	}
 	if err := fs.UpdateProject(workspaceId, project); err != nil {
 		return fmt.Errorf("failed to update the project to unlock the plan generation. Error: %q", err)
 	}
@@ -1249,7 +1298,13 @@ func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths [
 		cmdArgs = append(cmdArgs, "--config", p)
 	}
 	logrus.Infof("transform cmdArgs: %+v", cmdArgs)
-	cmd := exec.Command(common.APP_NAME, cmdArgs...)
+	ctx := context.Background()
+	if common.Config.TransformTimeoutSeconds > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(common.Config.TransformTimeoutSeconds)*time.Second)
+		defer cancel()
+	}
+	cmd := exec.CommandContext(ctx, common.APP_NAME, cmdArgs...)
 	cmd.Dir = currentRunDir
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1312,6 +1367,14 @@ func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths [
 			logrus.Info(outputLine)
 		}
 	}
+	isCtxClosed := false
+	select {
+	case <-ctx.Done():
+		logrus.Debug("ctx closed")
+		isCtxClosed = true
+	default:
+		logrus.Debug("ctx not closed")
+	}
 	// create the output zip file
 	if err := copyOverPlanConfigAndQACache(currentRunDir, currentRunOutDir); err != nil {
 		logrus.Errorf("failed to copy over the m2kconfig.yaml and m2kqacache.yaml. Error: %q", err)
@@ -1326,7 +1389,18 @@ func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths [
 		return fmt.Errorf("failed to read the project with id %s to update the status of the output %+v . Error: %q", projectId, projOutput, err)
 	}
 	po := project.Outputs[projOutput.Id]
-	po.Status = types.ProjectOutputStatusDone
+	po.Status = types.ProjectOutputStatusDoneSuccess
+	if isCtxClosed {
+		// transformation was interrupted for some reason
+		po.Status = types.ProjectOutputStatusDoneError
+		if err := ctx.Err(); err == context.Canceled {
+			logrus.Errorf("transformation for output %s of project %s was cancelled. Error: %q", projOutput.Id, projectId, err)
+		} else if err == context.DeadlineExceeded {
+			logrus.Errorf("transformation for output %s of project %s exceeded the timeout. Error: %q", projOutput.Id, projectId, err)
+		} else {
+			logrus.Errorf("transformation for output %s of project %s stopped because the context was closed. Error: %q", projOutput.Id, projectId, err)
+		}
+	}
 	project.Outputs[projOutput.Id] = po
 	if err := fs.UpdateProject(workspaceId, project); err != nil {
 		return fmt.Errorf("failed to update the project to finish the transformation. Error: %q", err)

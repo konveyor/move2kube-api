@@ -32,7 +32,9 @@ import (
 
 // HandleListRoleBindings handles list all the roles of a particular user
 func HandleListRoleBindings(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleListRoleBindings start")
+	defer logrus.Trace("HandleListRoleBindings end")
 	accessToken, err := common.GetAccesTokenFromAuthzHeader(r)
 	if err != nil {
 		logrus.Debugf("failed to get the access token from the request. Error: %q", err)
@@ -78,12 +80,13 @@ func HandleListRoleBindings(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	logrus.Trace("HandleListRoleBindings end")
 }
 
 // HandlePatchRoleBindings handles patching the roles of a particular user
 func HandlePatchRoleBindings(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandlePatchRoleBindings start")
+	defer logrus.Trace("HandlePatchRoleBindings end")
 	accessToken, err := common.GetAccesTokenFromAuthzHeader(r)
 	if err != nil {
 		logrus.Debugf("failed to get the access token from the request. Error: %q", err)
@@ -179,12 +182,13 @@ func HandlePatchRoleBindings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-	logrus.Trace("HandlePatchRoleBindings end")
 }
 
 // HandleCreateRoleBinding handles assigning a role to a particular user
 func HandleCreateRoleBinding(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleCreateRoleBinding start")
+	defer logrus.Trace("HandleCreateRoleBinding end")
 	accessToken, err := common.GetAccesTokenFromAuthzHeader(r)
 	if err != nil {
 		logrus.Debugf("failed to get the access token from the request. Error: %q", err)
@@ -228,12 +232,13 @@ func HandleCreateRoleBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-	logrus.Trace("HandleCreateRoleBinding end")
 }
 
 // HandleDeleteRoleBinding handles removing a role from a particular user
 func HandleDeleteRoleBinding(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
 	logrus.Trace("HandleDeleteRoleBinding start")
+	defer logrus.Trace("HandleDeleteRoleBinding end")
 	accessToken, err := common.GetAccesTokenFromAuthzHeader(r)
 	if err != nil {
 		logrus.Debugf("failed to get the access token from the request. Error: %q", err)
@@ -270,12 +275,12 @@ func HandleDeleteRoleBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-	logrus.Trace("HandleDeleteRoleBinding end")
 }
 
 // GetAuthServerIdGivenUserId returns the authz server Id of the user given the user id used in the Move2Kube API URL endpoints
 func GetAuthServerIdGivenUserId(accessToken string, userId string) (string, error) {
 	logrus.Trace("GetAuthServerIdGivenUserId start")
+	defer logrus.Trace("GetAuthServerIdGivenUserId end")
 	userParams := gocloak.GetUsersParams{Username: &userId}
 	userInfos, err := common.AuthServerClient.GetUsers(context.TODO(), accessToken, common.Config.AuthServerRealm, userParams)
 	if err != nil {
@@ -287,6 +292,5 @@ func GetAuthServerIdGivenUserId(accessToken string, userId string) (string, erro
 	if userInfos[0].ID == nil {
 		return "", fmt.Errorf("expected the user with the user id %s to have a corresponding keycloak Id. Actual: %+v", userId, userInfos[0])
 	}
-	logrus.Trace("GetAuthServerIdGivenUserId end")
 	return *userInfos[0].ID, nil
 }
