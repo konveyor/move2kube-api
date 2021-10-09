@@ -53,7 +53,7 @@ For more information, visit https://move2kube.konveyor.io/`,
 	rootCmd.Flags().IntP("port", "p", 8080, "Port to listen on.")
 	rootCmd.Flags().Int("cookie-max-age", 2*3600, "Max age for session cookies (in seconds).")
 	rootCmd.Flags().Int("max-upload-size", 100*1024*1024, "Max size (in bytes) for file uploads.")
-	rootCmd.Flags().Int("plan-timeout-seconds", 20*60, "No. of seconds to wait before cancelling ongoing plan generation. Negative value means no timeout.")
+	rootCmd.Flags().Int("plan-timeout-seconds", -1, "No. of seconds to wait before cancelling ongoing plan generation. Negative value means no timeout.")
 	rootCmd.Flags().Int("transform-timeout-seconds", -1, "No. of seconds to wait before cancelling ongoing transformation. Negative value means no timeout.")
 	rootCmd.Flags().Bool("auth-enabled", false, "Enable authentication and authorization.")
 	rootCmd.Flags().Bool("secure-cookies", false, "Send cookies only if it is a https TLS connection. Turn this on in production environments.")
