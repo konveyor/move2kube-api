@@ -159,6 +159,10 @@ func HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		if e, ok := err.(types.ErrorValidation); ok {
+			sendErrorJSON(w, e.Reason, http.StatusForbidden)
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}

@@ -74,16 +74,8 @@ func HandleReadPlan(w http.ResponseWriter, r *http.Request) {
 	}
 	plan, err := m2kFS.ReadPlan(workspaceId, projectId)
 	if err != nil {
-		logrus.Debugf("failed to get the plan. Error: %q", err)
-		if _, ok := err.(types.ErrorDoesNotExist); ok {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		if e, ok := err.(types.ErrorValidation); ok {
-			sendErrorJSON(w, e.Reason, http.StatusBadRequest)
-			return
-		}
 		if _, ok := err.(types.ErrorOngoing); ok {
+			logrus.Debugf("failed to get the plan. Error: %q", err)
 			if plan != nil {
 				planBytes := plan.(*bytes.Buffer)
 				w.Header().Set(common.CONTENT_TYPE_HEADER, common.CONTENT_TYPE_JSON)
@@ -92,6 +84,15 @@ func HandleReadPlan(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		logrus.Errorf("failed to get the plan. Error: %q", err)
+		if _, ok := err.(types.ErrorDoesNotExist); ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if e, ok := err.(types.ErrorValidation); ok {
+			sendErrorJSON(w, e.Reason, http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
