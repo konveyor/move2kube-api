@@ -16,7 +16,7 @@
 ARG VERSION=latest
 
 # Build image
-FROM registry.access.redhat.com/ubi8/ubi:latest AS build_base
+FROM registry.access.redhat.com/ubi8/ubi:latest AS builder
 WORKDIR /temp
 
 RUN yum -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm 
@@ -48,7 +48,7 @@ FROM quay.io/konveyor/move2kube:${VERSION}
 WORKDIR /move2kube-api
 
 # Install move2kube-api
-COPY --from=build_base /go/bin/move2kube-api /bin/move2kube-api
+COPY --from=builder /go/bin/move2kube-api /bin/move2kube-api
 
 # for openshift
 RUN chown -R :root /move2kube-api
