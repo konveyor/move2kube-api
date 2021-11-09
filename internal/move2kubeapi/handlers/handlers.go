@@ -53,21 +53,19 @@ var (
 
 // Setup handlers
 func Setup() error {
+	logrus.Trace("Setup start")
+	defer logrus.Trace("Setup end")
 	absDataDir, err := filepath.Abs(common.Config.DataDir)
 	if err != nil {
 		return fmt.Errorf("failed to make the data directory path %s absolute. Error: %q", common.Config.DataDir, err)
 	}
 	common.Config.DataDir = absDataDir
-	workMetadataDir := filepath.Join(common.Config.DataDir, common.METADATAS_DIR, common.WORKSPACE_METADATAS_DIR)
-	logrus.Debugf("making the workspace metadata directory at %s", workMetadataDir)
-	if err := os.MkdirAll(workMetadataDir, filesystem.DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
-		return fmt.Errorf("failed to make the workspaces metadata directory at path %s . Error: %q", workMetadataDir, err)
-	}
 	projDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR)
 	logrus.Debugf("making the projects directory at %s", projDir)
 	if err := os.MkdirAll(projDir, filesystem.DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to make the projects directory at path %s . Error: %q", projDir, err)
 	}
+	logrus.Debug("creating the filesystem object")
 	m2kFS = filesystem.NewFileSystem()
 	if common.Config.AuthEnabled {
 		if err := authserver.Setup(); err != nil {

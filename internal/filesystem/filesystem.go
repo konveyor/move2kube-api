@@ -44,6 +44,7 @@ import (
 	"github.com/phayes/freeport"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cast"
+	bolt "go.etcd.io/bbolt"
 	"gopkg.in/yaml.v3"
 )
 
@@ -76,6 +77,12 @@ const (
 	DEFAULT_DIRECTORY_PERMISSIONS os.FileMode = 0775
 	// DEFAULT_FILE_PERMISSIONS is the default permissions used when creating new files
 	DEFAULT_FILE_PERMISSIONS os.FileMode = 0660
+	// DATABASE_FILENAME is the database filename
+	DATABASE_FILENAME = "database"
+	// WORKSPACES_BUCKET is the workspaces bucket
+	WORKSPACES_BUCKET = "workspaces"
+	// PROJECTS_BUCKET is the projects bucket
+	PROJECTS_BUCKET = "projects"
 )
 
 var (
@@ -101,14 +108,18 @@ This architecture should support multiple pod restarts (even during planning/tra
 
 TODO: also need to figure out where to put the config files. Currently we are not accepting upload or use of config files.
 
+Database structure:
+There are 4 buckets. Each bucket is a key value store.
+
+workspaces bucket    [workspace_id]      -> workspace
+projects bucket      [project_id]        -> project
+plan_progress_bucket [project_id]        -> plan progress server metadata
+qa_server_bucket     [project_output_id] -> qa server metadata
+
+Filesystem structure:
 data/
-	metadata/
-		workspaces/
-			work-id-1.json
-			work-id-2.json
 	projects/
 		project-id-1/
-			metadata.json
 			inputs/
 				archives/
 					sources/
@@ -128,7 +139,6 @@ data/
 					configs/
 						config-1.yaml
 						config-2.yaml
-					m2k.planprogressserver
 					m2k.plan
 					m2kcli.log
 			outputs/
@@ -143,7 +153,6 @@ data/
 					configs/
 						config-1.yaml
 						config-2.yaml
-					m2k.qaserver
 					m2k.plan
 					m2kconfig.yaml
 					m2kqacache.yaml
@@ -155,6 +164,16 @@ data/
 
 // FileSystem implements the IFileSystem interface and manages the workspace and project data in the filesystem
 type FileSystem struct{}
+
+// GetDatabase returns the database. The database must be closed by the caller.
+func (*FileSystem) GetDatabase(readOnly bool) (*bolt.DB, error) {
+	databasePath := filepath.Join(common.Config.DataDir, DATABASE_FILENAME)
+	db, err := bolt.Open(databasePath, DEFAULT_FILE_PERMISSIONS, &bolt.Options{ReadOnly: readOnly})
+	if err != nil {
+		return db, fmt.Errorf("failed to open the database at path %s . Error: %q", databasePath, err)
+	}
+	return db, nil
+}
 
 // GetSupportInfo returns information useful for debugging.
 // Returns the output of move2kube version -l
@@ -214,105 +233,215 @@ func (*FileSystem) Download() (io.Reader, string, error) {
 
 // ListWorkspaceIds returns the list of workspace Ids
 func (fs *FileSystem) ListWorkspaceIds() ([]string, error) {
-	workMetadataDir := filepath.Join(common.Config.DataDir, common.METADATAS_DIR, common.WORKSPACE_METADATAS_DIR)
-	fInfos, err := os.ReadDir(workMetadataDir)
+	db, err := fs.GetDatabase(true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read the workspace metadata directory at path %s . Error: %q", workMetadataDir, err)
+		return nil, err
 	}
+	defer db.Close()
+	wids := []string{}
+	err = db.View(func(t *bolt.Tx) error {
+		wids, err = fs.listWorkspaceIds(t)
+		return err
+	})
+	return wids, err
+}
+
+func (*FileSystem) listWorkspaceIds(t *bolt.Tx) ([]string, error) {
 	workspaceIds := []string{}
-	for _, fInfo := range fInfos {
-		workspaceIds = append(workspaceIds, fInfo.Name())
+	workBucket := t.Bucket([]byte(WORKSPACES_BUCKET))
+	if workBucket == nil {
+		return workspaceIds, fmt.Errorf("failed to get the workspaces bucket '%s'", WORKSPACES_BUCKET)
 	}
-	return workspaceIds, nil
+	err := workBucket.ForEach(func(workspaceId, _ []byte) error {
+		workspaceIds = append(workspaceIds, string(workspaceId))
+		return nil
+	})
+	return workspaceIds, err
 }
 
 // ListWorkspaces returns the list of workspaces
 func (fs *FileSystem) ListWorkspaces(workspaceIds []string) ([]types.Workspace, error) {
-	if workspaceIds == nil {
-		var err error
-		workspaceIds, err = fs.ListWorkspaceIds()
-		if err != nil {
-			return nil, fmt.Errorf("failed to list the workspace ids. Error: %q", err)
-		}
+	db, err := fs.GetDatabase(true)
+	if err != nil {
+		return nil, err
 	}
+	defer db.Close()
+	ws := []types.Workspace{}
+	err = db.View(func(t *bolt.Tx) error {
+		ws, err = fs.listWorkspaces(t, workspaceIds)
+		return err
+	})
+	return ws, err
+}
+
+func (*FileSystem) listWorkspaces(t *bolt.Tx, workspaceIds []string) ([]types.Workspace, error) {
 	workspaces := []types.Workspace{}
-	for _, workspaceId := range workspaceIds {
-		workspace, err := fs.ReadWorkspace(workspaceId)
-		if err != nil {
-			logrus.Errorf("failed to read the workspace with id: %s . Error: %q", workspaceId, err)
-			continue
-		}
-		workspaces = append(workspaces, workspace)
+	workBucket := t.Bucket([]byte(WORKSPACES_BUCKET))
+	if workBucket == nil {
+		return workspaces, fmt.Errorf("failed to get the workspaces bucket '%s'", WORKSPACES_BUCKET)
 	}
-	return workspaces, nil
+	err := workBucket.ForEach(func(workspaceId, workBytes []byte) error {
+		if workspaceIds != nil && !common.IsStringPresent(workspaceIds, string(workspaceId)) {
+			return nil
+		}
+		work := types.Workspace{}
+		if err := json.Unmarshal(workBytes, &work); err != nil {
+			logrus.Errorf("failed to unmarshal the workspace %s as json. Actual: %s\nError: %q", string(workspaceId), string(workBytes), err)
+			return nil
+		}
+		workspaces = append(workspaces, work)
+		return nil
+	})
+	return workspaces, err
 }
 
 // CreateWorkspace creates a new workspace
-func (*FileSystem) CreateWorkspace(workspace types.Workspace) error {
-	metaFilePath := filepath.Join(common.Config.DataDir, common.METADATAS_DIR, common.WORKSPACE_METADATAS_DIR, workspace.Id)
-	if _, err := os.Stat(metaFilePath); err == nil {
+func (fs *FileSystem) CreateWorkspace(workspace types.Workspace) error {
+	db, err := fs.GetDatabase(false)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.Update(func(t *bolt.Tx) error {
+		return fs.createWorkspace(t, workspace)
+	})
+}
+
+func (*FileSystem) createWorkspace(t *bolt.Tx, workspace types.Workspace) error {
+	workBucket := t.Bucket([]byte(WORKSPACES_BUCKET))
+	if workBucket == nil {
+		return fmt.Errorf("workspace bucket is missing")
+	}
+	if v := workBucket.Get([]byte(workspace.Id)); v != nil {
 		return types.ErrorIdAlreadyInUse{Id: workspace.Id}
 	}
-	if err := WriteJSON(metaFilePath, workspace); err != nil {
-		return fmt.Errorf("failed to write the workspace metadata to the file at path %s . Error: %q", metaFilePath, err)
+	workBytes, err := json.Marshal(workspace)
+	if err != nil {
+		return fmt.Errorf("failed to marshal the workspace as json. Error: %q", err)
+	}
+	if err := workBucket.Put([]byte(workspace.Id), workBytes); err != nil {
+		return fmt.Errorf("failed to set the workspace id '%s' to the workspace %s in the workspaces bucket. Error: %q", workspace.Id, string(workBytes), err)
 	}
 	return nil
 }
 
 // ReadWorkspace reads an existing workspace
 func (fs *FileSystem) ReadWorkspace(workspaceId string) (types.Workspace, error) {
+	db, err := fs.GetDatabase(true)
+	if err != nil {
+		return types.Workspace{}, err
+	}
+	defer db.Close()
 	work := types.Workspace{}
-	workMetaFilePath := filepath.Join(common.Config.DataDir, common.METADATAS_DIR, common.WORKSPACE_METADATAS_DIR, workspaceId)
-	if err := ReadJSON(workMetaFilePath, &work); err != nil {
-		if os.IsNotExist(err) {
-			return work, types.ErrorDoesNotExist{Id: workspaceId}
-		}
-		return work, fmt.Errorf("failed to read the workspace metadata file at path %s . Error: %q", workMetaFilePath, err)
+	err = db.View(func(t *bolt.Tx) error {
+		work, err = fs.readWorkspace(t, workspaceId)
+		return err
+	})
+	return work, err
+}
+
+func (*FileSystem) readWorkspace(t *bolt.Tx, workspaceId string) (types.Workspace, error) {
+	work := types.Workspace{}
+	workBucket := t.Bucket([]byte(WORKSPACES_BUCKET))
+	if workBucket == nil {
+		return work, types.ErrorDoesNotExist{Id: workspaceId}
+	}
+	workBytes := workBucket.Get([]byte(workspaceId))
+	if workBytes == nil {
+		return work, types.ErrorDoesNotExist{Id: workspaceId}
+	}
+	if err := json.Unmarshal(workBytes, &work); err != nil {
+		return work, fmt.Errorf("failed to unmarshal the workspace as json. Actual: %s\nError: %q", string(workBytes), err)
 	}
 	return work, nil
 }
 
 // UpdateWorkspace updates an existing workspace
 func (fs *FileSystem) UpdateWorkspace(workspace types.Workspace) error {
-	workMetaFilePath := filepath.Join(common.Config.DataDir, common.METADATAS_DIR, common.WORKSPACE_METADATAS_DIR, workspace.Id)
-	if _, err := fs.ReadWorkspace(workspace.Id); err != nil {
+	db, err := fs.GetDatabase(false)
+	if err != nil {
 		return err
 	}
-	if err := WriteJSON(workMetaFilePath, workspace); err != nil {
-		return fmt.Errorf("failed to write the workspace metadata to the file at path %s . Error: %q", workMetaFilePath, err)
+	defer db.Close()
+	return db.Update(func(t *bolt.Tx) error {
+		return fs.updateWorkspace(t, workspace)
+	})
+}
+
+func (*FileSystem) updateWorkspace(t *bolt.Tx, workspace types.Workspace) error {
+	workBucket := t.Bucket([]byte(WORKSPACES_BUCKET))
+	if workBucket == nil {
+		return fmt.Errorf("workspace bucket is missing")
+	}
+	if v := workBucket.Get([]byte(workspace.Id)); v == nil {
+		return types.ErrorDoesNotExist{Id: workspace.Id}
+	}
+	workBytes, err := json.Marshal(workspace)
+	if err != nil {
+		return fmt.Errorf("failed to marshal the workspace as json. Error: %q", err)
+	}
+	if err := workBucket.Put([]byte(workspace.Id), workBytes); err != nil {
+		return fmt.Errorf("failed to set the workspace id '%s' to the workspace %s in the workspaces bucket. Error: %q", workspace.Id, string(workBytes), err)
 	}
 	return nil
 }
 
 // DeleteWorkspace deletes an existing workspace
 func (fs *FileSystem) DeleteWorkspace(workspaceId string) error {
-	work, err := fs.ReadWorkspace(workspaceId)
+	db, err := fs.GetDatabase(false)
 	if err != nil {
 		return err
 	}
-	workMetaFilePath := filepath.Join(common.Config.DataDir, common.METADATAS_DIR, common.WORKSPACE_METADATAS_DIR, workspaceId)
-	if err := os.RemoveAll(workMetaFilePath); err != nil {
-		return fmt.Errorf("failed to remove the workspace metadata file at path %s . Error: %q", workMetaFilePath, err)
+	defer db.Close()
+	return db.Update(func(t *bolt.Tx) error {
+		return fs.deleteWorkspace(t, workspaceId)
+	})
+}
+
+func (fs *FileSystem) deleteWorkspace(t *bolt.Tx, workspaceId string) error {
+	work, err := fs.readWorkspace(t, workspaceId)
+	if err != nil {
+		return err
 	}
 	for _, projectId := range work.ProjectIds {
-		projectDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId)
-		if err := os.RemoveAll(projectDir); err != nil {
-			logrus.Errorf("failed to remove the project %s in the workspace %s at the path %s . Error: %q", projectId, workspaceId, projectDir, err)
+		if err := fs.deleteProject(t, workspaceId, projectId); err != nil {
+			logrus.Errorf("failed to delete the project %s in the workspace %s . Error: %q", projectId, workspaceId, err)
 			continue
 		}
+	}
+	workBucket := t.Bucket([]byte(WORKSPACES_BUCKET))
+	if workBucket == nil {
+		return fmt.Errorf("workspaces bucket is missing")
+	}
+	if err := workBucket.Delete([]byte(workspaceId)); err != nil {
+		return fmt.Errorf("failed to delete the workspace with id '%s' in the workspaces bucket. Error: %q", workspaceId, err)
 	}
 	return nil
 }
 
 // ListProjects returns the list of projects in the workspace
 func (fs *FileSystem) ListProjects(workspaceId string) ([]types.Project, error) {
-	work, err := fs.ReadWorkspace(workspaceId)
+	db, err := fs.GetDatabase(true)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	projs := []types.Project{}
+	err = db.View(func(t *bolt.Tx) error {
+		projs, err = fs.listProjects(t, workspaceId)
+		return err
+	})
+	return projs, err
+}
+
+func (fs *FileSystem) listProjects(t *bolt.Tx, workspaceId string) ([]types.Project, error) {
+	work, err := fs.readWorkspace(t, workspaceId)
 	if err != nil {
 		return nil, err
 	}
 	projects := []types.Project{}
 	for _, projectId := range work.ProjectIds {
-		project, err := fs.ReadProject(workspaceId, projectId)
+		project, err := fs.readProject(t, workspaceId, projectId)
 		if err != nil {
 			logrus.Errorf("failed to read the project with id: %s . Error: %q", projectId, err)
 			continue
@@ -324,25 +453,46 @@ func (fs *FileSystem) ListProjects(workspaceId string) ([]types.Project, error) 
 
 // CreateProject creates a new project in the filesystem
 func (fs *FileSystem) CreateProject(workspaceId string, project types.Project) error {
-	work, err := fs.ReadWorkspace(workspaceId)
+	db, err := fs.GetDatabase(false)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.Update(func(t *bolt.Tx) error {
+		return fs.createProject(t, workspaceId, project)
+	})
+}
+
+func (fs *FileSystem) createProject(t *bolt.Tx, workspaceId string, project types.Project) error {
+	// check conditions
+	work, err := fs.readWorkspace(t, workspaceId)
 	if err != nil {
 		return err
 	}
 	if common.IsStringPresent(work.ProjectIds, project.Id) {
 		return types.ErrorIdAlreadyInUse{Id: project.Id}
 	}
+	projBucket := t.Bucket([]byte(PROJECTS_BUCKET))
+	if projBucket == nil {
+		return fmt.Errorf("the projects bucket is missing")
+	}
+	// update state
+	projBytes, err := json.Marshal(project)
+	if err != nil {
+		return fmt.Errorf("failed to marshal project %+v as json. Error: %q", project, err)
+	}
+	if err := projBucket.Put([]byte(project.Id), projBytes); err != nil {
+		return fmt.Errorf("failed to put the project %s in the projects bucket. Actual: %s\nError: %q", project.Id, string(projBytes), err)
+	}
+	work.ProjectIds = append(work.ProjectIds, project.Id)
+	if err := fs.updateWorkspace(t, work); err != nil {
+		return fmt.Errorf("failed to update the workspace with id: %s . Error: %q", workspaceId, err)
+	}
+	// effects
 	logrus.Debugf("creating a new project: %+v in the workspace with id: %s", project, workspaceId)
 	projDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, project.Id)
 	if err := os.MkdirAll(projDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to make the project directory at path %s . Error: %q", projDir, err)
-	}
-	metadataFilePath := filepath.Join(projDir, PROJECT_METADATA_FILE)
-	if err := WriteJSON(metadataFilePath, project); err != nil {
-		return fmt.Errorf("failed to write the project metadata to file at path %s . Error: %q", metadataFilePath, err)
-	}
-	work.ProjectIds = append(work.ProjectIds, project.Id)
-	if err := fs.UpdateWorkspace(work); err != nil {
-		return fmt.Errorf("failed to update the workspace with id: %s . Error: %q", workspaceId, err)
 	}
 	return nil
 }
@@ -350,16 +500,34 @@ func (fs *FileSystem) CreateProject(workspaceId string, project types.Project) e
 // ReadProject returns the metadata about a project
 func (fs *FileSystem) ReadProject(workspaceId string, projectId string) (types.Project, error) {
 	project := types.Project{}
-	work, err := fs.ReadWorkspace(workspaceId)
+	db, err := fs.GetDatabase(true)
 	if err != nil {
 		return project, err
 	}
-	if !common.IsStringPresent(work.ProjectIds, projectId) {
+	defer db.Close()
+	proj := types.Project{}
+	err = db.View(func(t *bolt.Tx) error {
+		proj, err = fs.readProject(t, workspaceId, projectId)
+		return err
+	})
+	return proj, err
+}
+
+func (fs *FileSystem) readProject(t *bolt.Tx, workspaceId string, projectId string) (types.Project, error) {
+	project := types.Project{}
+	if _, err := fs.readWorkspace(t, workspaceId); err != nil {
+		return project, err
+	}
+	projBucket := t.Bucket([]byte(PROJECTS_BUCKET))
+	if projBucket == nil {
+		return project, fmt.Errorf("the projects bucket is missing")
+	}
+	projectBytes := projBucket.Get([]byte(projectId))
+	if projectBytes == nil {
 		return project, types.ErrorDoesNotExist{Id: projectId}
 	}
-	metadataFilePath := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_METADATA_FILE)
-	if err := ReadJSON(metadataFilePath, &project); err != nil {
-		return project, fmt.Errorf("failed to read the project from the metadata file at path %s . Error: %q", metadataFilePath, err)
+	if err := json.Unmarshal(projectBytes, &project); err != nil {
+		return project, fmt.Errorf("failed to unmarshal the project as json. Error: %q\nActual: %s", err, string(projectBytes))
 	}
 	if project.Inputs == nil {
 		project.Inputs = map[string]types.ProjectInput{}
@@ -370,57 +538,139 @@ func (fs *FileSystem) ReadProject(workspaceId string, projectId string) (types.P
 	if project.Status == nil {
 		project.Status = map[types.ProjectStatus]bool{}
 	}
-	logrus.Debugf("ReadProject project: %+v", project)
+	logrus.Debugf("readProject project: %+v", project)
 	return project, nil
 }
 
 // UpdateProject updates a new project in the filesystem
 func (fs *FileSystem) UpdateProject(workspaceId string, project types.Project) error {
-	work, err := fs.ReadWorkspace(workspaceId)
+	db, err := fs.GetDatabase(false)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.Update(func(t *bolt.Tx) error {
+		return fs.updateProject(t, workspaceId, project)
+	})
+}
+
+func (fs *FileSystem) updateProject(t *bolt.Tx, workspaceId string, project types.Project) error {
+	// check conditions
+	work, err := fs.readWorkspace(t, workspaceId)
 	if err != nil {
 		return err
 	}
 	if !common.IsStringPresent(work.ProjectIds, project.Id) {
 		return types.ErrorDoesNotExist{Id: project.Id}
 	}
-	logrus.Debugf("updating an existing project: %+v in the workspace with id: %s", project, workspaceId)
-	metadataFilePath := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, project.Id, PROJECT_METADATA_FILE)
-	if err := WriteJSON(metadataFilePath, project); err != nil {
-		return fmt.Errorf("failed to write the project metadata to file at path %s . Error: %q", metadataFilePath, err)
+	projBucket := t.Bucket([]byte(PROJECTS_BUCKET))
+	if projBucket == nil {
+		return fmt.Errorf("the projects bucket is missing")
+	}
+	// update state
+	projBytes, err := json.Marshal(project)
+	if err != nil {
+		return fmt.Errorf("failed to marshal project %+v as json. Error: %q", project, err)
+	}
+	if err := projBucket.Put([]byte(project.Id), projBytes); err != nil {
+		return fmt.Errorf("failed to update the project %+v in the projects bucket. Error: %q", project, err)
 	}
 	return nil
 }
 
 // DeleteProject deletes an project from the filesysem
 func (fs *FileSystem) DeleteProject(workspaceId string, projectId string) error {
-	work, err := fs.ReadWorkspace(workspaceId)
+	db, err := fs.GetDatabase(false)
 	if err != nil {
 		return err
 	}
-	if !common.IsStringPresent(work.ProjectIds, projectId) {
-		return types.ErrorDoesNotExist{Id: projectId}
+	defer db.Close()
+	return db.Update(func(t *bolt.Tx) error {
+		// check conditions
+		work, err := fs.readWorkspace(t, workspaceId)
+		if err != nil {
+			return err
+		}
+		if !common.IsStringPresent(work.ProjectIds, projectId) {
+			return types.ErrorDoesNotExist{Id: projectId}
+		}
+		// update state
+		filtered := []string{}
+		for _, pid := range work.ProjectIds {
+			if pid == projectId {
+				continue
+			}
+			filtered = append(filtered, pid)
+		}
+		work.ProjectIds = filtered
+		if err := fs.updateWorkspace(t, work); err != nil {
+			return fmt.Errorf("failed to update the workspace with id: %s . Error: %q", workspaceId, err)
+		}
+		return fs.deleteProject(t, workspaceId, projectId)
+	})
+}
+
+func (fs *FileSystem) deleteProject(t *bolt.Tx, workspaceId string, projectId string) error {
+	project, err := fs.readProject(t, workspaceId, projectId)
+	if err != nil {
+		return fmt.Errorf("failed to read the project %s . Error: %q", projectId, err)
 	}
+	// cannot delete while planning
+	if project.Status[types.ProjectStatusPlanning] {
+		return types.ErrorValidation{Reason: fmt.Sprintf("cannot delete the project %s because planning is ongoing", projectId)}
+	}
+	// cannot delete while transforming
+	for _, projOutput := range project.Outputs {
+		if projOutput.Status == types.ProjectOutputStatusInProgress {
+			return types.ErrorValidation{Reason: fmt.Sprintf("cannot delete the project %s because transforming of output %s is ongoing", projectId, projOutput.Id)}
+		}
+	}
+	projBucket := t.Bucket([]byte(PROJECTS_BUCKET))
+	if projBucket == nil {
+		return fmt.Errorf("the projects bucket is missing")
+	}
+	if err := projBucket.Delete([]byte(projectId)); err != nil {
+		return fmt.Errorf("failed to delete the project %s from the projects bucket '%s' . Error: %q", projectId, PROJECTS_BUCKET, err)
+	}
+	planBucket := t.Bucket([]byte(M2K_PLAN_PROGRESS_SERVER_METADATA_FILE))
+	if planBucket == nil {
+		return fmt.Errorf("the plan progress server bucket is missing")
+	}
+	if err := planBucket.Delete([]byte(projectId)); err != nil {
+		return fmt.Errorf("failed to delete the project %s from the plan progress server bucket '%s' . Error: %q", projectId, M2K_PLAN_PROGRESS_SERVER_METADATA_FILE, err)
+	}
+	qaBucket := t.Bucket([]byte(M2K_QA_SERVER_METADATA_FILE))
+	if qaBucket == nil {
+		return fmt.Errorf("the qa server bucket is missing")
+	}
+	for projOutputId := range project.Outputs {
+		if err := qaBucket.Delete([]byte(projOutputId)); err != nil {
+			return fmt.Errorf("failed to delete the output %s of the project %s from the qa server bucket '%s' . Error: %q", projOutputId, projectId, M2K_QA_SERVER_METADATA_FILE, err)
+		}
+	}
+	// effects
 	projDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId)
 	if err := os.RemoveAll(projDir); err != nil {
 		return fmt.Errorf("failed to remove the project at path %s . Error: %q", projDir, err)
-	}
-	filtered := []string{}
-	for _, pid := range work.ProjectIds {
-		if pid == projectId {
-			continue
-		}
-		filtered = append(filtered, pid)
-	}
-	work.ProjectIds = filtered
-	if err := fs.UpdateWorkspace(work); err != nil {
-		return fmt.Errorf("failed to update the workspace with id: %s . Error: %q", workspaceId, err)
 	}
 	return nil
 }
 
 // CreateProjectInput creates an input for the project in the filesystem
 func (fs *FileSystem) CreateProjectInput(workspaceId, projectId string, projInput types.ProjectInput, file io.Reader) error {
-	project, err := fs.ReadProject(workspaceId, projectId)
+	db, err := fs.GetDatabase(false)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.Update(func(t *bolt.Tx) error {
+		return fs.createProjectInput(t, workspaceId, projectId, projInput, file)
+	})
+}
+
+func (fs *FileSystem) createProjectInput(t *bolt.Tx, workspaceId, projectId string, projInput types.ProjectInput, file io.Reader) error {
+	// check conditions
+	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
 		return err
 	}
@@ -438,6 +688,7 @@ func (fs *FileSystem) CreateProjectInput(workspaceId, projectId string, projInpu
 			return types.ErrorValidation{Reason: reason}
 		}
 	}
+	// update state
 	project.Inputs[projInput.Id] = projInput
 	project.Status[types.ProjectStatusStalePlan] = true
 	lastDir := ""
@@ -459,6 +710,10 @@ func (fs *FileSystem) CreateProjectInput(workspaceId, projectId string, projInpu
 	archExpDir := filepath.Join(projInputsDir, EXPANDED_DIR, lastDir)
 	archivePath := filepath.Join(archDir, projInput.NormalizedName)
 	archiveExpandedPath := filepath.Join(archExpDir, projInput.NormalizedName)
+	if err := fs.updateProject(t, workspaceId, project); err != nil {
+		return fmt.Errorf("failed to update the project with id: %s . Error: %q", projectId, err)
+	}
+	// effects
 	if err := os.RemoveAll(archivePath); err != nil {
 		return fmt.Errorf("failed to remove the archive at path %s . Error: %q", archivePath, err)
 	}
@@ -466,6 +721,7 @@ func (fs *FileSystem) CreateProjectInput(workspaceId, projectId string, projInpu
 		return fmt.Errorf("failed to remove the archive expanded directory at the path %s . Error: %q", archiveExpandedPath, err)
 	}
 	if projInput.Type == types.ProjectInputConfigs {
+		// configs
 		if err := os.MkdirAll(archExpDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
 			return fmt.Errorf("failed to create a directory at the path %s . Error: %q", archExpDir, err)
 		}
@@ -478,11 +734,9 @@ func (fs *FileSystem) CreateProjectInput(workspaceId, projectId string, projInpu
 		if _, err := io.Copy(f, file); err != nil {
 			return fmt.Errorf("failed to receive and write the config file to the path %s completely. Error: %q", archiveExpandedPath, err)
 		}
-		if err := fs.UpdateProject(workspaceId, project); err != nil {
-			return fmt.Errorf("failed to update the project with id: %s . Error: %q", projectId, err)
-		}
 		return nil
 	}
+	// sources and customizations
 	if err := os.MkdirAll(archDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to create the archive directory at the path %s . Error: %q", archDir, err)
 	}
@@ -503,6 +757,7 @@ func (fs *FileSystem) CreateProjectInput(workspaceId, projectId string, projInpu
 	}
 	// expand the archive
 	if err := archiver.Unarchive(archivePath, archiveExpandedPath); err != nil {
+		logrus.Debugf("failed to expand the archive at path %s into path %s . Trying other formats. Error: %q", archivePath, archiveExpandedPath, err)
 		filename := projInput.Name
 		if filepath.Ext(filename) == ".zip" {
 			if err := archiver.NewZip().Unarchive(archivePath, archiveExpandedPath); err != nil {
@@ -520,15 +775,25 @@ func (fs *FileSystem) CreateProjectInput(workspaceId, projectId string, projInpu
 			return fmt.Errorf("the archive at path %s is not in a supported format. Please use one of the supported formats: %+v", archivePath, VALID_ARCHIVE_EXTS)
 		}
 	}
-	if err := fs.UpdateProject(workspaceId, project); err != nil {
-		return fmt.Errorf("failed to update the project with id: %s . Error: %q", projectId, err)
-	}
 	return nil
 }
 
 // ReadProjectInput returns a project input
 func (fs *FileSystem) ReadProjectInput(workspaceId, projectId, projInputId string) (projInput types.ProjectInput, file io.Reader, err error) {
-	project, err := fs.ReadProject(workspaceId, projectId)
+	db, err := fs.GetDatabase(true)
+	if err != nil {
+		return projInput, file, err
+	}
+	defer db.Close()
+	err = db.View(func(t *bolt.Tx) error {
+		projInput, file, err = fs.readProjectInput(t, workspaceId, projectId, projInputId)
+		return err
+	})
+	return projInput, file, err
+}
+
+func (fs *FileSystem) readProjectInput(t *bolt.Tx, workspaceId, projectId, projInputId string) (projInput types.ProjectInput, file io.Reader, err error) {
+	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
 		return types.ProjectInput{}, nil, err
 	}
@@ -556,7 +821,19 @@ func (fs *FileSystem) ReadProjectInput(workspaceId, projectId, projInputId strin
 
 // DeleteProjectInput deletes the project input
 func (fs *FileSystem) DeleteProjectInput(workspaceId, projectId, projInputId string) error {
-	project, err := fs.ReadProject(workspaceId, projectId)
+	db, err := fs.GetDatabase(false)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.Update(func(t *bolt.Tx) error {
+		return fs.deleteProjectInput(t, workspaceId, projectId, projInputId)
+	})
+}
+
+func (fs *FileSystem) deleteProjectInput(t *bolt.Tx, workspaceId, projectId, projInputId string) error {
+	// check conditions
+	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
 		return err
 	}
@@ -568,6 +845,7 @@ func (fs *FileSystem) DeleteProjectInput(workspaceId, projectId, projInputId str
 	if project.Status[types.ProjectStatusPlanning] {
 		return types.ErrorOngoing{Id: projectId}
 	}
+	// update state
 	project.Status[types.ProjectStatusStalePlan] = true
 	projInputsDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_INPUTS_DIR)
 	archivePath := ""
@@ -582,14 +860,6 @@ func (fs *FileSystem) DeleteProjectInput(workspaceId, projectId, projInputId str
 		archiveExpandedPath = filepath.Join(projInputsDir, EXPANDED_DIR, CONFIGS_DIR, projInput.NormalizedName)
 	} else {
 		return types.ErrorValidation{Reason: fmt.Sprintf("invalid project input type: %s", projInput.Type)}
-	}
-	if projInput.Type != types.ProjectInputConfigs {
-		if err := os.RemoveAll(archivePath); err != nil {
-			return fmt.Errorf("failed to delete the archive file with id: %s at path %s . Error: %q", projInputId, archivePath, err)
-		}
-	}
-	if err := os.RemoveAll(archiveExpandedPath); err != nil {
-		return fmt.Errorf("failed to delete the expanded archive directory/config file at path %s . Error: %q", archiveExpandedPath, err)
 	}
 	delete(project.Inputs, projInputId)
 	found := false
@@ -608,8 +878,17 @@ func (fs *FileSystem) DeleteProjectInput(workspaceId, projectId, projInputId str
 			project.Status[types.ProjectStatusInputConfigs] = false
 		}
 	}
-	if err := fs.UpdateProject(workspaceId, project); err != nil {
+	if err := fs.updateProject(t, workspaceId, project); err != nil {
 		return fmt.Errorf("failed to update project with id: %s . Error: %q", projectId, err)
+	}
+	// effects
+	if projInput.Type != types.ProjectInputConfigs {
+		if err := os.RemoveAll(archivePath); err != nil {
+			return fmt.Errorf("failed to delete the archive file with id: %s at path %s . Error: %q", projInputId, archivePath, err)
+		}
+	}
+	if err := os.RemoveAll(archiveExpandedPath); err != nil {
+		return fmt.Errorf("failed to delete the expanded archive directory/config file at path %s . Error: %q", archiveExpandedPath, err)
 	}
 	return nil
 }
@@ -617,7 +896,19 @@ func (fs *FileSystem) DeleteProjectInput(workspaceId, projectId, projInputId str
 // StartPlanning starts the generation of a plan for a project.
 // If plan generation is ongoing it will return an error.
 func (fs *FileSystem) StartPlanning(workspaceId, projectId string, debugMode bool) error {
-	project, err := fs.ReadProject(workspaceId, projectId)
+	db, err := fs.GetDatabase(false)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.Update(func(t *bolt.Tx) error {
+		return fs.startPlanning(t, workspaceId, projectId, debugMode)
+	})
+}
+
+func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, debugMode bool) error {
+	// check conditions
+	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
 		return err
 	}
@@ -628,9 +919,10 @@ func (fs *FileSystem) StartPlanning(workspaceId, projectId string, debugMode boo
 	if !project.Status[types.ProjectStatusInputSources] {
 		return types.ErrorValidation{Reason: "the project has no input sources"}
 	}
+	// update state
 	// acquire lock
 	project.Status[types.ProjectStatusPlanning] = true
-	if err := fs.UpdateProject(workspaceId, project); err != nil {
+	if err := fs.updateProject(t, workspaceId, project); err != nil {
 		return fmt.Errorf("failed to update the project with id %s . Error: %q", projectId, err)
 	}
 	message := "Project: " + project.Id + ";"
@@ -642,10 +934,10 @@ func (fs *FileSystem) StartPlanning(workspaceId, projectId string, debugMode boo
 	}
 	var currentRunConfigPaths []string = nil
 	if project.Status[types.ProjectStatusInputConfigs] {
-		t1 := filepath.Join(currentRunDir, CONFIGS_DIR)
-		currentRunConfigPaths, err = getConfigPaths(t1, project)
+		currConfigsDir := filepath.Join(currentRunDir, CONFIGS_DIR)
+		currentRunConfigPaths, err = getConfigPaths(currConfigsDir, project)
 		if err != nil {
-			return fmt.Errorf("failed to get the config paths from the directory %s . Error: %q", t1, err)
+			return fmt.Errorf("failed to get the config paths from the directory %s . Error: %q", currConfigsDir, err)
 		}
 	}
 	// This file contains the metadata about a run (host and port of the QA engine's http server, etc.)
@@ -658,34 +950,62 @@ func (fs *FileSystem) StartPlanning(workspaceId, projectId string, debugMode boo
 		return fmt.Errorf("failed to get a free port. Error: %q", err)
 	}
 	logrus.Debugf("plan progress server metadata %+v", planProgressServerMeta)
-	planProgressServerMetaPath := filepath.Join(currentRunDir, M2K_PLAN_PROGRESS_SERVER_METADATA_FILE)
-	if err := WriteJSON(planProgressServerMetaPath, planProgressServerMeta); err != nil {
-		return fmt.Errorf("failed to write to the plan progress server metadata to the file at path %s . Error: %q", planProgressServerMetaPath, err)
+	planProgressServerMetaBytes, err := json.Marshal(planProgressServerMeta)
+	if err != nil {
+		return fmt.Errorf("failed to marshal the plan progress server metdata: %+v . Error: %q", planProgressServerMeta, err)
 	}
+	planProgressBucket, err := t.CreateBucketIfNotExists([]byte(M2K_PLAN_PROGRESS_SERVER_METADATA_FILE))
+	if err != nil {
+		return fmt.Errorf("failed to create the bucket. Error: %q", err)
+	}
+	if err := planProgressBucket.Put([]byte(projectId), planProgressServerMetaBytes); err != nil {
+		return fmt.Errorf("failed to save the plan progress metadata in the bucket '%s' for the project with id %s . Error: %q", M2K_PLAN_PROGRESS_SERVER_METADATA_FILE, projectId, err)
+	}
+	// effects
 	// start plan generation
-	go fs.runPlan(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunDir, message, planProgressServerMeta.Port, workspaceId, projectId, debugMode)
+	go fs.runPlan(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunDir, message, planProgressServerMeta.Port, workspaceId, projectId, project.Name, debugMode)
 	logrus.Infof("Planning started for the project with id %s", projectId)
 	return nil
 }
 
 // ReadPlan returns the plan for a project
 func (fs *FileSystem) ReadPlan(workspaceId, projectId string) (file io.Reader, err error) {
-	logrus.Debugf("read the plan for project with id: %s", projectId)
-	project, err := fs.ReadProject(workspaceId, projectId)
+	db, err := fs.GetDatabase(true)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	var f io.Reader
+	err = db.View(func(t *bolt.Tx) error {
+		f, err = fs.readPlan(t, workspaceId, projectId)
+		return err
+	})
+	return f, err
+}
+
+func (fs *FileSystem) readPlan(t *bolt.Tx, workspaceId, projectId string) (file io.Reader, err error) {
+	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
 		return nil, err
 	}
 	// check lock
 	currentRunDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_INPUTS_DIR, EXPANDED_DIR)
 	if project.Status[types.ProjectStatusPlanning] {
-		planProgressServerMetaPath := filepath.Join(currentRunDir, M2K_PLAN_PROGRESS_SERVER_METADATA_FILE)
+		planBucket := t.Bucket([]byte(M2K_PLAN_PROGRESS_SERVER_METADATA_FILE))
+		if planBucket == nil {
+			return nil, fmt.Errorf("failed to open the plan progress bucket. Error: %q", err)
+		}
+		planProgressServerMetaBytes := planBucket.Get([]byte(projectId))
+		if planProgressServerMetaBytes == nil {
+			return nil, fmt.Errorf("the project id %s is missing from the plan progress bucket '%s'", projectId, M2K_PLAN_PROGRESS_SERVER_METADATA_FILE)
+		}
 		meta := types.QAServerMetadata{}
-		if err := ReadJSON(planProgressServerMetaPath, &meta); err != nil {
-			logrus.Errorf("failed to read the plan progress. Error: %q", err)
+		if err := json.Unmarshal(planProgressServerMetaBytes, &meta); err != nil {
+			logrus.Errorf("failed to unmarshal the plan progress metadata as json. Actual: %s \nError: %q", string(planProgressServerMetaBytes), err)
 			return nil, types.ErrorOngoing{Id: projectId}
 		}
 		proURL := fmt.Sprintf("http://%s:%d/progress", meta.Host, meta.Port)
-		resp, err := resty.New().R().SetHeader("Accept", "application/json").Get(proURL)
+		resp, err := resty.New().R().SetHeader("Accept", common.CONTENT_TYPE_JSON).Get(proURL)
 		if err != nil {
 			logrus.Errorf("failed to send a GET request to get the plan progress from the server at %s . Error: %q", proURL, err)
 			return nil, types.ErrorOngoing{Id: projectId}
@@ -701,19 +1021,33 @@ func (fs *FileSystem) ReadPlan(workspaceId, projectId string) (file io.Reader, e
 	planFilePath := filepath.Join(currentRunDir, M2K_PLAN_FILENAME)
 	f, err := os.Open(planFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open the file at path %s . Error: %q", planFilePath, err)
+		return nil, fmt.Errorf("failed to open the plan file at path %s . Error: %q", planFilePath, err)
 	}
 	return f, nil
 }
 
 // UpdatePlan updates the plan file for a project
 func (fs *FileSystem) UpdatePlan(workspaceId, projectId string, plan io.Reader) error {
-	logrus.Infof("Updating plan of %s", projectId)
-	project, err := fs.ReadProject(workspaceId, projectId)
+	db, err := fs.GetDatabase(false)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.Update(func(t *bolt.Tx) error {
+		return fs.updatePlan(t, workspaceId, projectId, plan)
+	})
+}
+
+func (fs *FileSystem) updatePlan(t *bolt.Tx, workspaceId, projectId string, plan io.Reader) error {
+	// check conditions
+	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
 		return err
 	}
 	// check lock
+	if !project.Status[types.ProjectStatusInputSources] {
+		return types.ErrorValidation{Reason: "the project does not have any folders with source code. Please upload sources before updating the plan"}
+	}
 	if project.Status[types.ProjectStatusPlanning] {
 		return types.ErrorOngoing{Id: projectId}
 	}
@@ -724,24 +1058,36 @@ func (fs *FileSystem) UpdatePlan(workspaceId, projectId string, plan io.Reader) 
 	if _, err := validateAndProcessPlan(string(planBytes), false); err != nil {
 		return types.ErrorValidation{Reason: fmt.Sprintf("plan validation failed. Error: %q", err)}
 	}
+	// update state
+	project.Status[types.ProjectStatusPlan] = true
+	project.Status[types.ProjectStatusStalePlan] = false
+	project.Status[types.ProjectStatusPlanError] = false
+	if err := fs.updateProject(t, workspaceId, project); err != nil {
+		return fmt.Errorf("failed to update the project %s in the workspace %s . Error: %q", projectId, workspaceId, err)
+	}
+	// effects
 	planFilePath := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_INPUTS_DIR, EXPANDED_DIR, M2K_PLAN_FILENAME)
 	if err := ioutil.WriteFile(planFilePath, planBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to write to the plan file at path %s . Error: %q", planFilePath, err)
 	}
-	project.Status[types.ProjectStatusPlan] = true
-	project.Status[types.ProjectStatusStalePlan] = false
-	project.Status[types.ProjectStatusPlanError] = false
-	if err := fs.UpdateProject(workspaceId, project); err != nil {
-		return fmt.Errorf("failed to update the project %s in the workspace %s . Error: %q", projectId, workspaceId, err)
-	}
-	logrus.Infof("Plan updated successfully")
 	return nil
 }
 
 // DeletePlan deletes plan for a project
 func (fs *FileSystem) DeletePlan(workspaceId, projectId string) error {
-	logrus.Trace("DeletePlan start")
-	project, err := fs.ReadProject(workspaceId, projectId)
+	db, err := fs.GetDatabase(false)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.Update(func(t *bolt.Tx) error {
+		return fs.deletePlan(t, workspaceId, projectId)
+	})
+}
+
+func (fs *FileSystem) deletePlan(t *bolt.Tx, workspaceId, projectId string) error {
+	// check conditions
+	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
 		return err
 	}
@@ -753,22 +1099,34 @@ func (fs *FileSystem) DeletePlan(workspaceId, projectId string) error {
 		// TODO: allow stopping ongoing plan generation
 		return types.ErrorOngoing{Id: projectId}
 	}
+	// update state
+	project.Status[types.ProjectStatusPlan] = false
+	if err := fs.updateProject(t, workspaceId, project); err != nil {
+		return fmt.Errorf("failed to update the project with id %s . Error: %q", projectId, err)
+	}
+	// effects
 	planFilePath := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_INPUTS_DIR, EXPANDED_DIR, M2K_PLAN_FILENAME)
 	if err := os.RemoveAll(planFilePath); err != nil {
 		return fmt.Errorf("failed to delete the plan file at path %s . Error: %q", planFilePath, err)
 	}
-	project.Status[types.ProjectStatusPlan] = false
-	if err := fs.UpdateProject(workspaceId, project); err != nil {
-		return fmt.Errorf("failed to update the project with id %s . Error: %q", projectId, err)
-	}
-	logrus.Trace("DeletePlan end")
 	return nil
 }
 
 // ResumeTransformation resumes a transformation that did not finish
 func (fs *FileSystem) ResumeTransformation(workspaceId, projectId, projOutputId string, debugMode bool) error {
-	logrus.Trace("ResumeTransformation start")
-	project, err := fs.ReadProject(workspaceId, projectId)
+	db, err := fs.GetDatabase(false)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.Update(func(t *bolt.Tx) error {
+		return fs.resumeTransformation(t, workspaceId, projectId, projOutputId, debugMode)
+	})
+}
+
+func (fs *FileSystem) resumeTransformation(t *bolt.Tx, workspaceId, projectId, projOutputId string, debugMode bool) error {
+	// check conditions
+	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
 		return err
 	}
@@ -783,16 +1141,24 @@ func (fs *FileSystem) ResumeTransformation(workspaceId, projectId, projOutputId 
 	if projOutput.Status != types.ProjectOutputStatusInProgress {
 		return fmt.Errorf("expected the project output to be in status '%s' . Actual: %+v", types.ProjectOutputStatusInProgress, projOutput)
 	}
+	qaServerBucket := t.Bucket([]byte(M2K_QA_SERVER_METADATA_FILE))
+	if qaServerBucket == nil {
+		return fmt.Errorf("the qa server metadata bucket is missing")
+	}
+	qaServerMetaBytes := qaServerBucket.Get([]byte(projOutputId))
+	if qaServerMetaBytes == nil {
+		return fmt.Errorf("the qa server metadata is missing for the output %s of project with id %s", projOutputId, projectId)
+	}
 	currentRunDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutputId)
-	qaServerMetaPath := filepath.Join(currentRunDir, M2K_QA_SERVER_METADATA_FILE)
 	qaServerMeta := types.QAServerMetadata{}
-	if err := ReadJSON(qaServerMetaPath, &qaServerMeta); err != nil {
-		logrus.Errorf("failed to read the qa server metadata file at the path %s . Error: %q", qaServerMetaPath, err)
+	if err := json.Unmarshal(qaServerMetaBytes, &qaServerMeta); err != nil {
+		logrus.Errorf("failed to unmarshal the qa server metadata as json. Actual: %s\nError: %q", string(qaServerMetaBytes), err)
 		return err
 	}
 	if _, err := http.Get(fmt.Sprintf("http://%s:%d", qaServerMeta.Host, qaServerMeta.Port)); err == nil {
 		return types.ErrorOngoing{Id: projOutputId}
 	}
+	// update state
 	// resume the transformation
 	qaServerMeta.Host = getDNSHostName()
 	if qaServerMeta.Host == "" {
@@ -803,8 +1169,11 @@ func (fs *FileSystem) ResumeTransformation(workspaceId, projectId, projOutputId 
 		return fmt.Errorf("failed to get a free port. Error: %q", err)
 	}
 	qaServerMeta.Debug = debugMode || qaServerMeta.Debug
-	if err := WriteJSON(qaServerMetaPath, qaServerMeta); err != nil {
-		return fmt.Errorf("failed to write to the qa server metadata to the file at path %s . Error: %q", qaServerMetaPath, err)
+	if qaServerMetaBytes, err = json.Marshal(qaServerMeta); err != nil {
+		return fmt.Errorf("failed to marshal to the qa server metadata as json. Actual: %+v\nError: %q", qaServerMeta, err)
+	}
+	if err := qaServerBucket.Put([]byte(projOutputId), qaServerMetaBytes); err != nil {
+		return fmt.Errorf("failed to update the qa server metadata in the bucket. Error: %q", err)
 	}
 	currentRunSrcDir := ""
 	if project.Status[types.ProjectStatusInputSources] {
@@ -817,23 +1186,33 @@ func (fs *FileSystem) ResumeTransformation(workspaceId, projectId, projOutputId 
 	currentRunOutDir := filepath.Join(currentRunDir, "output")
 	message := "Project: " + projectId + "; Output:" + projOutputId + ";"
 	transformCh := make(chan error, 2)
-	logrus.Infof("Resuming transformation for output %s of project %s", projOutputId, projectId)
 	var currentRunConfigPaths []string = nil
 	if project.Status[types.ProjectStatusInputConfigs] {
-		t1 := filepath.Join(currentRunDir, CONFIGS_DIR)
-		currentRunConfigPaths, err = getConfigPaths(t1, project)
+		currConfigsDir := filepath.Join(currentRunDir, CONFIGS_DIR)
+		currentRunConfigPaths, err = getConfigPaths(currConfigsDir, project)
 		if err != nil {
-			return fmt.Errorf("failed to get the config paths from the directory %s . Error: %q", t1, err)
+			return fmt.Errorf("failed to get the config paths from the directory %s . Error: %q", currConfigsDir, err)
 		}
 	}
 	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode)
-	logrus.Trace("ResumeTransformation end")
 	return nil
 }
 
 // StartTransformation starts the transformation for a project.
 func (fs *FileSystem) StartTransformation(workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode bool) error {
-	project, err := fs.ReadProject(workspaceId, projectId)
+	db, err := fs.GetDatabase(false)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.Update(func(t *bolt.Tx) error {
+		return fs.startTransformation(t, workspaceId, projectId, projOutput, plan, debugMode)
+	})
+}
+
+func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode bool) error {
+	// check conditions
+	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
 		return err
 	}
@@ -841,27 +1220,23 @@ func (fs *FileSystem) StartTransformation(workspaceId, projectId string, projOut
 		return types.ErrorIdAlreadyInUse{Id: projOutput.Id}
 	}
 	if !project.Status[types.ProjectStatusInputSources] {
-		return fmt.Errorf("the project has no input sources")
+		return types.ErrorValidation{Reason: "the project has no input sources"}
 	}
-	project.Outputs[projOutput.Id] = projOutput
-	project.Status[types.ProjectStatusOutputs] = true
-	if err := fs.UpdateProject(workspaceId, project); err != nil {
-		return fmt.Errorf("failed to update the project with id %s . Error: %q", projectId, err)
+	if !project.Status[types.ProjectStatusPlan] {
+		return types.ErrorValidation{Reason: "the project has no plan"}
 	}
 	projInputsDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_INPUTS_DIR)
-	currentRunDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutput.Id)
-	if err := os.MkdirAll(currentRunDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
-		return fmt.Errorf("failed to make the project output directory at path %s . Error: %q", currentRunDir, err)
-	}
 	var planBytes []byte
 	if plan == nil {
 		srcPlanPath := filepath.Join(projInputsDir, EXPANDED_DIR, M2K_PLAN_FILENAME)
 		planBytes, err = ioutil.ReadFile(srcPlanPath)
 		if err != nil {
+			err := fmt.Errorf("failed to read the plan file at path %s . Error: %q", srcPlanPath, err)
+			logrus.Error(err)
 			if os.IsNotExist(err) {
 				return types.ErrorDoesNotExist{Id: "plan"}
 			}
-			return fmt.Errorf("failed to read the plan file at path %s . Error: %q", srcPlanPath, err)
+			return err
 		}
 	} else {
 		planBytes, err = ioutil.ReadAll(plan)
@@ -872,6 +1247,38 @@ func (fs *FileSystem) StartTransformation(workspaceId, projectId string, projOut
 	planStr, err := validateAndProcessPlan(string(planBytes), true)
 	if err != nil {
 		return types.ErrorValidation{Reason: err.Error()}
+	}
+	// update state
+	project.Outputs[projOutput.Id] = projOutput
+	project.Status[types.ProjectStatusOutputs] = true
+	if err := fs.updateProject(t, workspaceId, project); err != nil {
+		return fmt.Errorf("failed to update the project with id %s . Error: %q", projectId, err)
+	}
+	// This file contains the metadata about a run (host and port of the QA engine's http server, etc.)
+	qaServerMeta := types.QAServerMetadata{Host: getDNSHostName(), Debug: debugMode}
+	if qaServerMeta.Host == "" {
+		qaServerMeta.Host = "localhost"
+	}
+	qaServerMeta.Port, err = freeport.GetFreePort()
+	if err != nil {
+		return fmt.Errorf("failed to get a free port. Error: %q", err)
+	}
+	logrus.Debugf("qa server metadata %+v", qaServerMeta)
+	qaServerBucket, err := t.CreateBucketIfNotExists([]byte(M2K_QA_SERVER_METADATA_FILE))
+	if err != nil {
+		return fmt.Errorf("failed to create/get the bucket for qa server metadata . Error: %q", err)
+	}
+	qaServerMetaBytes, err := json.Marshal(qaServerMeta)
+	if err != nil {
+		return fmt.Errorf("failed to marshal the qa server metadata to json. Actual: %+v\nError: %q", qaServerMeta, err)
+	}
+	if err := qaServerBucket.Put([]byte(projOutput.Id), qaServerMetaBytes); err != nil {
+		return fmt.Errorf("failed to update the qa server metadata in the bucket. Error: %q", err)
+	}
+	// effects
+	currentRunDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutput.Id)
+	if err := os.MkdirAll(currentRunDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
+		return fmt.Errorf("failed to make the project output directory at path %s . Error: %q", currentRunDir, err)
 	}
 	planPath := filepath.Join(currentRunDir, M2K_PLAN_FILENAME)
 	if err := ioutil.WriteFile(planPath, []byte(planStr), DEFAULT_FILE_PERMISSIONS); err != nil {
@@ -894,32 +1301,18 @@ func (fs *FileSystem) StartTransformation(workspaceId, projectId string, projOut
 	var currentRunConfigPaths []string = nil
 	if project.Status[types.ProjectStatusInputConfigs] {
 		configsPath := filepath.Join(projInputsDir, EXPANDED_DIR, CONFIGS_DIR)
-		t1 := filepath.Join(currentRunDir, CONFIGS_DIR)
-		if err := copyDir(configsPath, t1); err != nil {
-			return fmt.Errorf("failed to copy the customizations directory from %s to %s for the current run. Error: %q", configsPath, t1, err)
+		currConfigsDir := filepath.Join(currentRunDir, CONFIGS_DIR)
+		if err := copyDir(configsPath, currConfigsDir); err != nil {
+			return fmt.Errorf("failed to copy the customizations directory from %s to %s for the current run. Error: %q", configsPath, currConfigsDir, err)
 		}
-		currentRunConfigPaths, err = getConfigPaths(t1, project)
+		currentRunConfigPaths, err = getConfigPaths(currConfigsDir, project)
 		if err != nil {
-			return fmt.Errorf("failed to get the config paths from the directory %s . Error: %q", t1, err)
+			return fmt.Errorf("failed to get the config paths from the directory %s . Error: %q", currConfigsDir, err)
 		}
 	}
 	currentRunOutDir := filepath.Join(currentRunDir, "output")
 	message := "Project: " + projectId + "; Output:" + projOutput.Id + ";"
 	transformCh := make(chan error, 2)
-	// This file contains the metadata about a run (host and port of the QA engine's http server, etc.)
-	qaServerMeta := types.QAServerMetadata{Host: getDNSHostName(), Debug: debugMode}
-	if qaServerMeta.Host == "" {
-		qaServerMeta.Host = "localhost"
-	}
-	qaServerMeta.Port, err = freeport.GetFreePort()
-	if err != nil {
-		return fmt.Errorf("failed to get a free port. Error: %q", err)
-	}
-	logrus.Debugf("qa server metadata %+v", qaServerMeta)
-	qaServerMetaPath := filepath.Join(currentRunDir, M2K_QA_SERVER_METADATA_FILE)
-	if err := WriteJSON(qaServerMetaPath, qaServerMeta); err != nil {
-		return fmt.Errorf("failed to write to the qa server metadata to the file at path %s . Error: %q", qaServerMetaPath, err)
-	}
 	// start the transformation
 	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode)
 	logrus.Infof("Waiting for QA engine to start for the output %s of the project %s", projOutput.Id, projectId)
@@ -932,7 +1325,20 @@ func (fs *FileSystem) StartTransformation(workspaceId, projectId string, projOut
 
 // ReadProjectOutput returns the target artifacts for an application
 func (fs *FileSystem) ReadProjectOutput(workspaceId, projectId, projOutputId string) (projOutput types.ProjectOutput, file io.Reader, err error) {
-	project, err := fs.ReadProject(workspaceId, projectId)
+	db, err := fs.GetDatabase(true)
+	if err != nil {
+		return projOutput, file, err
+	}
+	defer db.Close()
+	err = db.View(func(t *bolt.Tx) error {
+		projOutput, file, err = fs.readProjectOutput(t, workspaceId, projectId, projOutputId)
+		return err
+	})
+	return projOutput, file, err
+}
+
+func (fs *FileSystem) readProjectOutput(t *bolt.Tx, workspaceId, projectId, projOutputId string) (projOutput types.ProjectOutput, file io.Reader, err error) {
+	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
 		return types.ProjectOutput{}, nil, err
 	}
@@ -959,7 +1365,19 @@ func (fs *FileSystem) ReadProjectOutput(workspaceId, projectId, projOutputId str
 
 // DeleteProjectOutput deletes the project output
 func (fs *FileSystem) DeleteProjectOutput(workspaceId, projectId, projOutputId string) error {
-	project, err := fs.ReadProject(workspaceId, projectId)
+	db, err := fs.GetDatabase(false)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.Update(func(t *bolt.Tx) error {
+		return fs.deleteProjectOutput(t, workspaceId, projectId, projOutputId)
+	})
+}
+
+func (fs *FileSystem) deleteProjectOutput(t *bolt.Tx, workspaceId, projectId, projOutputId string) error {
+	// check conditions
+	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
 		return err
 	}
@@ -971,21 +1389,18 @@ func (fs *FileSystem) DeleteProjectOutput(workspaceId, projectId, projOutputId s
 		// TODO: implement ability to cancel ongoing transformation
 		return types.ErrorOngoing{Id: projOutputId}
 	}
-	qaServerMetaPath := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutputId, M2K_QA_SERVER_METADATA_FILE)
-	qaServerMetadata := types.QAServerMetadata{}
-	if err := ReadJSON(qaServerMetaPath, &qaServerMetadata); err != nil {
-		logrus.Errorf("deleting the output with id: %s even though we failed to read the qa server metadata file at path %s . Error: %q", projOutputId, qaServerMetaPath, err)
-	}
-	projOutputPath := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutputId)
-	if err := os.RemoveAll(projOutputPath); err != nil {
-		return fmt.Errorf("failed to remove the project output with id: %s directory at path %s . Error: %q", projOutputId, projOutputPath, err)
-	}
+	// update state
 	delete(project.Outputs, projOutputId)
 	if len(project.Outputs) == 0 {
 		project.Status[types.ProjectStatusOutputs] = false
 	}
-	if err := fs.UpdateProject(workspaceId, project); err != nil {
+	if err := fs.updateProject(t, workspaceId, project); err != nil {
 		return fmt.Errorf("failed to update project id: %s . Error: %q", projectId, err)
+	}
+	// effects
+	projOutputPath := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutputId)
+	if err := os.RemoveAll(projOutputPath); err != nil {
+		return fmt.Errorf("failed to remove the project output with id: %s directory at path %s . Error: %q", projOutputId, projOutputPath, err)
 	}
 	return nil
 }
@@ -993,7 +1408,20 @@ func (fs *FileSystem) DeleteProjectOutput(workspaceId, projectId, projOutputId s
 // GetQuestion returns the current question for application which is in transformation phase.
 // If there are no more questions, this will return "", nil.
 func (fs *FileSystem) GetQuestion(workspaceId, projectId, projOutputId string) (problem string, err error) {
-	project, err := fs.ReadProject(workspaceId, projectId)
+	db, err := fs.GetDatabase(true)
+	if err != nil {
+		return problem, err
+	}
+	defer db.Close()
+	err = db.View(func(t *bolt.Tx) error {
+		problem, err = fs.getQuestion(t, workspaceId, projectId, projOutputId)
+		return err
+	})
+	return problem, err
+}
+
+func (fs *FileSystem) getQuestion(t *bolt.Tx, workspaceId, projectId, projOutputId string) (problem string, err error) {
+	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
 		return "", err
 	}
@@ -1008,16 +1436,20 @@ func (fs *FileSystem) GetQuestion(workspaceId, projectId, projOutputId string) (
 	if projOutput.Status != types.ProjectOutputStatusInProgress {
 		return "", fmt.Errorf("expected the project output to be in status '%s' . Actual: %+v", types.ProjectOutputStatusInProgress, projOutput)
 	}
-	qaServerMetaPath := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutputId, M2K_QA_SERVER_METADATA_FILE)
+	qaServerBucket := t.Bucket([]byte(M2K_QA_SERVER_METADATA_FILE))
+	if qaServerBucket == nil {
+		return "", fmt.Errorf("the qa server bucket is missing")
+	}
+	qaServerMetaBytes := qaServerBucket.Get([]byte(projOutputId))
+	if qaServerMetaBytes == nil {
+		return "", fmt.Errorf("the output %s of project %s is missing from the qa server bucket", projOutputId, projectId)
+	}
 	qaServerMetadata := types.QAServerMetadata{}
-	if err := ReadJSON(qaServerMetaPath, &qaServerMetadata); err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("the qa server metadata file at path %s is missing. Error: %q", qaServerMetaPath, err)
-		}
-		return "", fmt.Errorf("failed to read the qa server metadata at path %s . Error: %q", qaServerMetaPath, err)
+	if err := json.Unmarshal(qaServerMetaBytes, &qaServerMetadata); err != nil {
+		return "", fmt.Errorf("failed to unmarshal the qa server metadata as json. Actual: %s\nError: %q", string(qaServerMetaBytes), err)
 	}
 	quesURL := fmt.Sprintf("http://%s:%d/problems/current", qaServerMetadata.Host, qaServerMetadata.Port)
-	logrus.Debugf("Getting the next question from the URL %s", quesURL)
+	logrus.Debugf("Getting the next question from the QA server at URL %s", quesURL)
 	resp, err := http.Get(quesURL)
 	checkErr(err)
 	if err != nil {
@@ -1042,7 +1474,18 @@ func (fs *FileSystem) GetQuestion(workspaceId, projectId, projOutputId string) (
 
 // PostSolution posts the solution for the current question
 func (fs *FileSystem) PostSolution(workspaceId, projectId, projOutputId, solution string) error {
-	project, err := fs.ReadProject(workspaceId, projectId)
+	db, err := fs.GetDatabase(true)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.View(func(t *bolt.Tx) error {
+		return fs.postSolution(t, workspaceId, projectId, projOutputId, solution)
+	})
+}
+
+func (fs *FileSystem) postSolution(t *bolt.Tx, workspaceId, projectId, projOutputId, solution string) error {
+	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
 		return err
 	}
@@ -1057,13 +1500,17 @@ func (fs *FileSystem) PostSolution(workspaceId, projectId, projOutputId, solutio
 	if projOutput.Status != types.ProjectOutputStatusInProgress {
 		return fmt.Errorf("expected the project output to be in status '%s' . Actual: %+v", types.ProjectOutputStatusInProgress, projOutput)
 	}
-	qaServerMetaPath := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutputId, M2K_QA_SERVER_METADATA_FILE)
+	qaServerBucket := t.Bucket([]byte(M2K_QA_SERVER_METADATA_FILE))
+	if qaServerBucket == nil {
+		return fmt.Errorf("the qa server bucket is missing")
+	}
+	qaServerMetaBytes := qaServerBucket.Get([]byte(projOutputId))
+	if qaServerMetaBytes == nil {
+		return fmt.Errorf("the output %s of project %s is missing from the qa server bucket", projOutputId, projectId)
+	}
 	qaServerMetadata := types.QAServerMetadata{}
-	if err := ReadJSON(qaServerMetaPath, &qaServerMetadata); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("the qa server metadata file at path %s is missing. Error: %q", qaServerMetaPath, err)
-		}
-		return fmt.Errorf("failed to read the qa server metadata at path %s . Error: %q", qaServerMetaPath, err)
+	if err := json.Unmarshal(qaServerMetaBytes, &qaServerMetadata); err != nil {
+		return fmt.Errorf("failed to unmarshal the qa server metadata as json. Actual: %s\nError: %q", string(qaServerMetaBytes), err)
 	}
 	quesURL := fmt.Sprintf("http://%s:%d/problems/current/solution", qaServerMetadata.Host, qaServerMetadata.Port)
 	logrus.Debugf("Posting the solution to the URL %s", quesURL)
@@ -1088,7 +1535,32 @@ func (fs *FileSystem) PostSolution(workspaceId, projectId, projOutputId, solutio
 
 // NewFileSystem returns a new IFileSystem object which manages workspaces and projects in the filesystem
 func NewFileSystem() *FileSystem {
-	fileSystem := &FileSystem{}
+	logrus.Trace("NewFileSystem start")
+	defer logrus.Trace("NewFileSystem end")
+	fileSystem := new(FileSystem)
+	db, err := fileSystem.GetDatabase(false)
+	if err != nil {
+		logrus.Fatalf("failed to create/get the database in read/write mode while setting up handlers. Error: %q", err)
+	}
+	err = db.Update(func(t *bolt.Tx) error {
+		if _, err := t.CreateBucketIfNotExists([]byte(WORKSPACES_BUCKET)); err != nil {
+			return err
+		}
+		if _, err := t.CreateBucketIfNotExists([]byte(PROJECTS_BUCKET)); err != nil {
+			return err
+		}
+		if _, err := t.CreateBucketIfNotExists([]byte(M2K_PLAN_PROGRESS_SERVER_METADATA_FILE)); err != nil {
+			return err
+		}
+		if _, err := t.CreateBucketIfNotExists([]byte(M2K_QA_SERVER_METADATA_FILE)); err != nil {
+			return err
+		}
+		return nil
+	})
+	db.Close()
+	if err != nil {
+		logrus.Fatalf("failed to create the buckets in the database. Error: %q", err)
+	}
 	workspaces, err := fileSystem.ListWorkspaces(nil)
 	if err != nil {
 		logrus.Fatalf("failed to list the workspaces. Error: %q", err)
@@ -1159,15 +1631,12 @@ func validateAndProcessPlan(plan string, shouldProcess bool) (string, error) {
 	return plan, nil
 }
 
-func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []string, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message string, port int, workspaceId, projectId string, debugMode bool) error {
+// TODO
+func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []string, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message string, port int, workspaceId, projectId, projectName string, debugMode bool) error {
 	logrus.Infof("Starting plan at directory %s using configs %+v and source %s and customizations %s to output %s", currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir)
-	project, err := fs.ReadProject(workspaceId, projectId)
+	normName, err := common.NormalizeName(projectName)
 	if err != nil {
-		return err
-	}
-	normName, err := common.NormalizeName(project.Name)
-	if err != nil {
-		return types.ErrorValidation{Reason: fmt.Sprintf("failed to normalize the project name %s . Error: %q", project.Name, err)}
+		return types.ErrorValidation{Reason: fmt.Sprintf("failed to normalize the project name %s . Error: %q", projectName, err)}
 	}
 	cmdArgs := []string{"plan", "--name", normName, "--source", currentRunSrcDir, "--plan-progress-port", cast.ToString(port), "--log-file", M2K_CLI_LOG_FILE}
 	verbose := debugMode || isVerbose()
@@ -1253,31 +1722,40 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 		logrus.Debug("ctx not closed")
 	}
 	// release lock
-	project, err = fs.ReadProject(workspaceId, projectId)
+	db, err := fs.GetDatabase(false)
 	if err != nil {
-		logrus.Errorf("inside runPlan, failed to read the project after planning completed. Error: %q", err)
+		err = fmt.Errorf("failed to get the database in read/write mode. Error: %q", err)
+		logrus.Error(err)
 		return err
 	}
-	project.Status[types.ProjectStatusPlanning] = false
-	project.Status[types.ProjectStatusPlan] = true
-	project.Status[types.ProjectStatusStalePlan] = false
-	project.Status[types.ProjectStatusPlanError] = false
-	if isCtxClosed {
-		// planning was interrupted for some reason
-		project.Status[types.ProjectStatusPlan] = false
-		project.Status[types.ProjectStatusPlanError] = true
-		if err := ctx.Err(); err == context.Canceled {
-			logrus.Errorf("planning for project %s was cancelled. Error: %q", projectId, err)
-		} else if err == context.DeadlineExceeded {
-			logrus.Errorf("planning for project %s exceeded the timeout. Error: %q", projectId, err)
-		} else {
-			logrus.Errorf("planning for project %s stopped because the context was closed. Error: %q", projectId, err)
+	defer db.Close()
+	return db.Update(func(t *bolt.Tx) error {
+		project, err := fs.readProject(t, workspaceId, projectId)
+		if err != nil {
+			logrus.Errorf("inside runPlan, failed to read the project after planning completed. Error: %q", err)
+			return err
 		}
-	}
-	if err := fs.UpdateProject(workspaceId, project); err != nil {
-		return fmt.Errorf("failed to update the project to unlock the plan generation. Error: %q", err)
-	}
-	return nil
+		project.Status[types.ProjectStatusPlanning] = false
+		project.Status[types.ProjectStatusPlan] = true
+		project.Status[types.ProjectStatusStalePlan] = false
+		project.Status[types.ProjectStatusPlanError] = false
+		if isCtxClosed {
+			// planning was interrupted for some reason
+			project.Status[types.ProjectStatusPlan] = false
+			project.Status[types.ProjectStatusPlanError] = true
+			if err := ctx.Err(); err == context.Canceled {
+				logrus.Errorf("planning for project %s was cancelled. Error: %q", projectId, err)
+			} else if err == context.DeadlineExceeded {
+				logrus.Errorf("planning for project %s exceeded the timeout. Error: %q", projectId, err)
+			} else {
+				logrus.Errorf("planning for project %s stopped because the context was closed. Error: %q", projectId, err)
+			}
+		}
+		if err := fs.updateProject(t, workspaceId, project); err != nil {
+			return fmt.Errorf("failed to update the project to unlock the plan generation. Error: %q", err)
+		}
+		return nil
+	})
 }
 
 func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths []string, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message string, port int, transformCh chan error, workspaceId, projectId string, projOutput types.ProjectOutput, debugMode bool) error {
@@ -1384,33 +1862,42 @@ func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths [
 		return fmt.Errorf("failed to create the output zip file at path %s using the output directory at path %s . Error: %q", zipPath, currentRunOutDir, err)
 	}
 	// indicate that the transformation is done
-	project, err := fs.ReadProject(workspaceId, projectId)
+	db, err := fs.GetDatabase(false)
 	if err != nil {
-		return fmt.Errorf("failed to read the project with id %s to update the status of the output %+v . Error: %q", projectId, projOutput, err)
+		return fmt.Errorf("failed to get a database in read/write mode. Error: %q", err)
 	}
-	po := project.Outputs[projOutput.Id]
-	po.Status = types.ProjectOutputStatusDoneSuccess
-	if isCtxClosed {
-		// transformation was interrupted for some reason
-		po.Status = types.ProjectOutputStatusDoneError
-		if err := ctx.Err(); err == context.Canceled {
-			logrus.Errorf("transformation for output %s of project %s was cancelled. Error: %q", projOutput.Id, projectId, err)
-		} else if err == context.DeadlineExceeded {
-			logrus.Errorf("transformation for output %s of project %s exceeded the timeout. Error: %q", projOutput.Id, projectId, err)
-		} else {
-			logrus.Errorf("transformation for output %s of project %s stopped because the context was closed. Error: %q", projOutput.Id, projectId, err)
+	defer db.Close()
+	err = db.Update(func(t *bolt.Tx) error {
+		project, err := fs.readProject(t, workspaceId, projectId)
+		if err != nil {
+			return fmt.Errorf("failed to read the project with id %s to update the status of the output %+v . Error: %q", projectId, projOutput, err)
 		}
-	}
-	project.Outputs[projOutput.Id] = po
-	if err := fs.UpdateProject(workspaceId, project); err != nil {
-		return fmt.Errorf("failed to update the project to finish the transformation. Error: %q", err)
-	}
-	if common.Config.CleanUpAfterTransform {
-		if err := cleanUpAfterTransform(currentRunDir); err != nil {
-			logrus.Errorf("failed to clean up after transformation finished. Error: %q", err)
+		po := project.Outputs[projOutput.Id]
+		po.Status = types.ProjectOutputStatusDoneSuccess
+		if isCtxClosed {
+			// transformation was interrupted for some reason
+			po.Status = types.ProjectOutputStatusDoneError
+			if err := ctx.Err(); err == context.Canceled {
+				logrus.Errorf("transformation for output %s of project %s was cancelled. Error: %q", projOutput.Id, projectId, err)
+			} else if err == context.DeadlineExceeded {
+				logrus.Errorf("transformation for output %s of project %s exceeded the timeout. Error: %q", projOutput.Id, projectId, err)
+			} else {
+				logrus.Errorf("transformation for output %s of project %s stopped because the context was closed. Error: %q", projOutput.Id, projectId, err)
+			}
 		}
-	}
-	return nil
+		project.Outputs[projOutput.Id] = po
+		if err := fs.updateProject(t, workspaceId, project); err != nil {
+			return fmt.Errorf("failed to update the project to finish the transformation. Error: %q", err)
+		}
+		if common.Config.CleanUpAfterTransform {
+			if err := cleanUpAfterTransform(currentRunDir); err != nil {
+				return fmt.Errorf("failed to clean up after transformation finished. Error: %q", err)
+			}
+		}
+		return nil
+	})
+	logrus.Error(err)
+	return err
 }
 
 func cleanUpAfterTransform(currentRunDir string) error {
@@ -1456,33 +1943,6 @@ func copyOverPlanConfigAndQACache(srcDir, destDir string) error {
 	}
 	if err := ioutil.WriteFile(qaCacheDestPath, qaCacheBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to write the qa cache file to the path %s . Error: %q", qaCacheDestPath, err)
-	}
-	return nil
-}
-
-// ReadJSON reads a json file into an object
-func ReadJSON(path string, data interface{}) error {
-	jsonBytes, err := ioutil.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return err
-		}
-		return fmt.Errorf("failed to read the json file at path %s . Error: %q", path, err)
-	}
-	if err := json.Unmarshal(jsonBytes, data); err != nil {
-		return fmt.Errorf("failed to unmarshal the json into the object of type %T . Error: %q", data, err)
-	}
-	return nil
-}
-
-// WriteJSON reads a json file into an object
-func WriteJSON(path string, data interface{}) error {
-	jsonBytes, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal the object of type %T to json. Error: %q", data, err)
-	}
-	if err := ioutil.WriteFile(path, jsonBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
-		return fmt.Errorf("failed to write the json to a file at path %s . Error: %q", path, err)
 	}
 	return nil
 }
