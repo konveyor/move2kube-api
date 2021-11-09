@@ -77,11 +77,11 @@ const (
 	DEFAULT_DIRECTORY_PERMISSIONS os.FileMode = 0775
 	// DEFAULT_FILE_PERMISSIONS is the default permissions used when creating new files
 	DEFAULT_FILE_PERMISSIONS os.FileMode = 0660
-	// Database filename
+	// DATABASE_FILENAME is the database filename
 	DATABASE_FILENAME = "database"
-	// Workspaces bucket
+	// WORKSPACES_BUCKET is the workspaces bucket
 	WORKSPACES_BUCKET = "workspaces"
-	// Projects bucket
+	// PROJECTS_BUCKET is the projects bucket
 	PROJECTS_BUCKET = "projects"
 )
 
