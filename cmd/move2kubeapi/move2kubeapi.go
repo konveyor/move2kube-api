@@ -19,6 +19,7 @@ package main
 import (
 	"log"
 	"strings"
+	"syscall"
 
 	"github.com/konveyor/move2kube-api/internal/common"
 	"github.com/konveyor/move2kube-api/internal/move2kubeapi"
@@ -121,6 +122,8 @@ func onInitialize() {
 }
 
 func setupCobraAndRun() error {
+	logrus.Debug("setting umask to 0 for this process")
+	syscall.Umask(0)
 	rootCmd := getRootCommand()
 	rootCmd.AddCommand(getVersionCommand())
 	cobra.OnInitialize(onInitialize)
