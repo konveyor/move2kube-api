@@ -108,6 +108,15 @@ This architecture should support multiple pod restarts (even during planning/tra
 
 TODO: also need to figure out where to put the config files. Currently we are not accepting upload or use of config files.
 
+Database structure:
+There are 4 buckets. Each bucket is a key value store.
+
+workspaces bucket    [workspace_id]      -> workspace
+projects bucket      [project_id]        -> project
+plan_progress_bucket [project_id]        -> plan progress server metadata
+qa_server_bucket     [project_output_id] -> qa server metadata
+
+Filesystem structure:
 data/
 	projects/
 		project-id-1/
