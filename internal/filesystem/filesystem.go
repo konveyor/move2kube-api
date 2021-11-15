@@ -406,7 +406,7 @@ func (fs *FileSystem) deleteWorkspace(t *bolt.Tx, workspaceId string) error {
 	for _, projectId := range work.ProjectIds {
 		if err := fs.deleteProject(t, workspaceId, projectId); err != nil {
 			logrus.Errorf("failed to delete the project %s in the workspace %s . Error: %q", projectId, workspaceId, err)
-			continue
+			return err
 		}
 	}
 	workBucket := t.Bucket([]byte(WORKSPACES_BUCKET))
@@ -617,12 +617,12 @@ func (fs *FileSystem) deleteProject(t *bolt.Tx, workspaceId string, projectId st
 	}
 	// cannot delete while planning
 	if project.Status[types.ProjectStatusPlanning] {
-		return types.ErrorValidation{Reason: fmt.Sprintf("cannot delete the project %s because planning is ongoing", projectId)}
+		return types.ErrorOngoing{Id: projectId}
 	}
 	// cannot delete while transforming
 	for _, projOutput := range project.Outputs {
 		if projOutput.Status == types.ProjectOutputStatusInProgress {
-			return types.ErrorValidation{Reason: fmt.Sprintf("cannot delete the project %s because transforming of output %s is ongoing", projectId, projOutput.Id)}
+			return types.ErrorOngoing{Id: projOutput.Id}
 		}
 	}
 	projBucket := t.Bucket([]byte(PROJECTS_BUCKET))

@@ -76,7 +76,7 @@ func HandleStartTransformation(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, ok := err.(types.ErrorOngoing); ok {
-			w.WriteHeader(http.StatusForbidden)
+			sendErrorJSON(w, "transformation is already ongoing", http.StatusConflict)
 			return
 		}
 		if e, ok := err.(types.ErrorValidation); ok {
@@ -157,7 +157,7 @@ func HandleDeleteProjectOutput(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, ok := err.(types.ErrorOngoing); ok {
 			// TODO: allow cancelling the transformation
-			w.WriteHeader(http.StatusForbidden)
+			sendErrorJSON(w, "cannot delete a project output while its transformation is ongoing", http.StatusConflict)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)

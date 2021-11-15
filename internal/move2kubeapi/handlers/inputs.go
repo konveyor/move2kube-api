@@ -150,6 +150,11 @@ func HandleDeleteProjectInput(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		if _, ok := err.(types.ErrorOngoing); ok {
+			// TODO: allow cancelling the planning
+			sendErrorJSON(w, "cannot delete project inputs while planning is ongoing", http.StatusConflict)
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}

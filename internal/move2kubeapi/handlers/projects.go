@@ -18,6 +18,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -160,7 +161,11 @@ func HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if e, ok := err.(types.ErrorValidation); ok {
-			sendErrorJSON(w, e.Reason, http.StatusForbidden)
+			sendErrorJSON(w, e.Reason, http.StatusBadRequest)
+			return
+		}
+		if e, ok := err.(types.ErrorOngoing); ok {
+			sendErrorJSON(w, fmt.Sprintf("cannot delete a project while its planning/transformation is ongoing. Ongoing for id: %s", e.Id), http.StatusConflict)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)

@@ -51,7 +51,7 @@ func HandleStartPlanning(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, ok := err.(types.ErrorOngoing); ok {
-			w.WriteHeader(http.StatusForbidden)
+			sendErrorJSON(w, "planning is already ongoing", http.StatusConflict)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
