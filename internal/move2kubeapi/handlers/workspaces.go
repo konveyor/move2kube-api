@@ -18,6 +18,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -253,6 +254,10 @@ func HandleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	if err := m2kFS.DeleteWorkspace(workspaceId); err != nil {
 		if _, ok := err.(types.ErrorDoesNotExist); ok {
 			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if e, ok := err.(types.ErrorOngoing); ok {
+			sendErrorJSON(w, fmt.Sprintf("cannot delete a workspace while one of its projects' planning/transformation is ongoing. Ongoing for id: %s", e.Id), http.StatusConflict)
 			return
 		}
 		logrus.Errorf("failed to remove the workspace id: %s . Error: %q", workspaceId, err)
