@@ -31,12 +31,6 @@ const (
 	APP_NAME_SHORT = "m2k"
 	// SESSIONS_DIR is the name of the directory where the sessions are stored
 	SESSIONS_DIR = "sessions"
-	// PROJECTS_DIR is the name of the directory where the projects are stored
-	PROJECTS_DIR = "projects"
-	// METADATAS_DIR is the name of the directory where the metadata files are stored
-	METADATAS_DIR = "metadata"
-	// WORKSPACE_METADATAS_DIR is the name of the directory where the workspace metadata files are stored
-	WORKSPACE_METADATAS_DIR = "workspaces"
 	// LOGIN_PATH is the URL endpoint to start the login flow
 	LOGIN_PATH = "/auth/login"
 	// LOGIN_CALLBACK_PATH is the URL endpoint to finish the login flow

@@ -248,7 +248,8 @@ type UserInfo gocloak.UserInfo
 // Workspace holds information about a workspace
 type Workspace struct {
 	Metadata
-	ProjectIds []string `json:"project_ids,omitempty"`
+	ProjectIds []string                `json:"project_ids,omitempty"`
+	Inputs     map[string]ProjectInput `json:"inputs,omitempty"`
 }
 
 // Project holds information about a project
@@ -342,6 +343,8 @@ const (
 	ProjectStatusInputCustomizations ProjectStatus = "customizations"
 	// ProjectStatusInputConfigs indicates the project has configs
 	ProjectStatusInputConfigs ProjectStatus = "configs"
+	// ProjectStatusInputReference indicates the project has references to workspace level inputs
+	ProjectStatusInputReference ProjectStatus = "reference"
 	// ProjectStatusPlanning indicates the project is currently generating a plan
 	ProjectStatusPlanning ProjectStatus = "planning"
 	// ProjectStatusPlan indicates the project has a plan
@@ -370,12 +373,14 @@ const (
 type ProjectInputType string
 
 const (
-	// ProjectInputSources is the type of project inputs that are folders containing source code
+	// ProjectInputSources is the type for project inputs that are folders containing source code
 	ProjectInputSources ProjectInputType = ProjectInputType(ProjectStatusInputSources)
-	// ProjectInputCustomizations is the type of project inputs that are folders containing customization files
+	// ProjectInputCustomizations is the type for project inputs that are folders containing customization files
 	ProjectInputCustomizations ProjectInputType = ProjectInputType(ProjectStatusInputCustomizations)
-	// ProjectInputConfigs is the type of project inputs that are config files
+	// ProjectInputConfigs is the type for project inputs that are config files
 	ProjectInputConfigs ProjectInputType = ProjectInputType(ProjectStatusInputConfigs)
+	// ProjectInputReference is the type for project inputs that are references to workspace level inputs
+	ProjectInputReference ProjectInputType = ProjectInputType(ProjectStatusInputReference)
 )
 
 // ParseProjectInputType parses the string and returns a project input type if valid
@@ -387,6 +392,8 @@ func ParseProjectInputType(s string) (ProjectInputType, error) {
 		return ProjectInputCustomizations, nil
 	case string(ProjectInputConfigs):
 		return ProjectInputConfigs, nil
+	case string(ProjectInputReference):
+		return ProjectInputReference, nil
 	default:
 		return "", fmt.Errorf("unknown project input type")
 	}

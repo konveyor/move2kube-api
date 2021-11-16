@@ -87,6 +87,11 @@ func Serve() error {
 	apiRouter.HandleFunc("/workspaces/{work-id}", handlers.HandleUpdateWorkspace).Methods("PUT")
 	apiRouter.HandleFunc("/workspaces/{work-id}", handlers.HandleDeleteWorkspace).Methods("DELETE")
 
+	// workspace inputs
+	apiRouter.HandleFunc("/workspaces/{work-id}/inputs", func(w http.ResponseWriter, r *http.Request) { handlers.HandleCreateProjectInput(w, r, true) }).Methods("POST")
+	apiRouter.HandleFunc("/workspaces/{work-id}/inputs/{input-id}", func(w http.ResponseWriter, r *http.Request) { handlers.HandleReadProjectInput(w, r, true) }).Methods("GET")
+	apiRouter.HandleFunc("/workspaces/{work-id}/inputs/{input-id}", func(w http.ResponseWriter, r *http.Request) { handlers.HandleDeleteProjectInput(w, r, true) }).Methods("DELETE")
+
 	// projects
 	apiRouter.HandleFunc("/workspaces/{work-id}/projects", handlers.HandleListProjects).Methods("GET")
 	apiRouter.HandleFunc("/workspaces/{work-id}/projects", handlers.HandleCreateProject).Methods("POST")
@@ -94,9 +99,9 @@ func Serve() error {
 	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}", handlers.HandleDeleteProject).Methods("DELETE")
 
 	// project inputs
-	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/inputs", handlers.HandleCreateProjectInput).Methods("POST")
-	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/inputs/{input-id}", handlers.HandleReadProjectInput).Methods("GET")
-	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/inputs/{input-id}", handlers.HandleDeleteProjectInput).Methods("DELETE")
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/inputs", func(w http.ResponseWriter, r *http.Request) { handlers.HandleCreateProjectInput(w, r, false) }).Methods("POST")
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/inputs/{input-id}", func(w http.ResponseWriter, r *http.Request) { handlers.HandleReadProjectInput(w, r, false) }).Methods("GET")
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/inputs/{input-id}", func(w http.ResponseWriter, r *http.Request) { handlers.HandleDeleteProjectInput(w, r, false) }).Methods("DELETE")
 
 	// plan
 	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/plan", handlers.HandleStartPlanning).Methods("POST")

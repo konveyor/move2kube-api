@@ -19,6 +19,7 @@ package handlers
 import (
 	"encoding/json"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -30,34 +31,30 @@ import (
 )
 
 // HandleCreateProjectInput is the handler for creating a project input
-func HandleCreateProjectInput(w http.ResponseWriter, r *http.Request) {
+// isCommon: if true the input will be available for all the projects in the workspace
+func HandleCreateProjectInput(w http.ResponseWriter, r *http.Request, isCommon bool) {
 	logrus := GetLogger(r)
 	logrus.Trace("HandleCreateProjectInput start")
 	defer logrus.Trace("HandleCreateProjectInput end")
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
-	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
-	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) {
-		logrus.Errorf("invalid id. Actual: %s %s", workspaceId, projectId)
-		sendErrorJSON(w, "invalid id", http.StatusBadRequest)
+	if !common.IsValidId(workspaceId) {
+		logrus.Errorf("invalid workspace id. Actual: %s", workspaceId)
+		sendErrorJSON(w, "invalid workspace id", http.StatusBadRequest)
 		return
+	}
+	projectId := ""
+	if !isCommon {
+		projectId = mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
+		if !common.IsValidId(projectId) {
+			logrus.Errorf("invalid project id. Actual: %s", projectId)
+			sendErrorJSON(w, "invalid project id", http.StatusBadRequest)
+			return
+		}
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, common.Config.MaxUploadSize)
 	if err := r.ParseMultipartForm(common.Config.MaxUploadSize); err != nil {
 		logrus.Errorf("failed to parse the request body as multipart/form-data. Error: %q", err)
 		sendErrorJSON(w, "failed to parse the request body as multipart/form-data", http.StatusBadRequest)
-		return
-	}
-	file, handler, err := r.FormFile("file")
-	if err != nil {
-		logrus.Errorf("failed to get the file from the request body. Error: %q", err)
-		sendErrorJSON(w, "failed to get the file from the request body", http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-	projType, err := types.ParseProjectInputType(r.FormValue("type"))
-	if err != nil {
-		logrus.Errorf("failed to parse the project input type. Error: %q", err)
-		sendErrorJSON(w, "the input type is invalid", http.StatusBadRequest)
 		return
 	}
 	timestamp, _, err := common.GetTimestamp()
@@ -66,17 +63,50 @@ func HandleCreateProjectInput(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	normName := filepath.Base(filepath.Clean(handler.Filename))
-	normName = strings.TrimSuffix(normName, filepath.Ext(normName))
-	normName, err = common.NormalizeName(normName)
+	projType, err := types.ParseProjectInputType(r.FormValue("type"))
 	if err != nil {
-		logrus.Errorf("failed to normalize the filename '%s'. Error: %q", handler.Filename, err)
-		sendErrorJSON(w, "failed to normalize the filename. Please use a filename that has only alphanumeric and hyphen characters.", http.StatusBadRequest)
+		logrus.Errorf("failed to parse the project input type. Error: %q", err)
+		sendErrorJSON(w, "the input type is invalid", http.StatusBadRequest)
 		return
 	}
-	projInput := types.ProjectInput{Metadata: types.Metadata{Id: uuid.NewString(), Name: handler.Filename, Description: r.FormValue("description"), Timestamp: timestamp}, Type: projType, NormalizedName: normName}
+	var file io.ReadCloser
+	filename := ""
+	normName := ""
+	projInputId := uuid.NewString()
+	if projType == types.ProjectInputReference {
+		if isCommon {
+			logrus.Errorf("cannot upload reference type input for workspaces")
+			sendErrorJSON(w, "cannot upload reference type input for workspaces", http.StatusBadRequest)
+			return
+		}
+		projInputId = r.FormValue("id")
+		if !common.IsValidId(projInputId) {
+			logrus.Errorf("the reference input id is invalid. Actual: %s", projInputId)
+			sendErrorJSON(w, "the reference input id is invalid", http.StatusBadRequest)
+			return
+		}
+	} else {
+		var fileHeader *multipart.FileHeader
+		file, fileHeader, err = r.FormFile("file")
+		if err != nil {
+			logrus.Errorf("failed to get the file from the request body. Error: %q", err)
+			sendErrorJSON(w, "failed to get the file from the request body", http.StatusBadRequest)
+			return
+		}
+		filename = fileHeader.Filename
+		defer file.Close()
+		normName = filepath.Base(filepath.Clean(filename))
+		normName = strings.TrimSuffix(normName, filepath.Ext(normName))
+		normName, err = common.NormalizeName(normName)
+		if err != nil {
+			logrus.Errorf("failed to normalize the filename '%s'. Error: %q", filename, err)
+			sendErrorJSON(w, "failed to normalize the filename. Please use a filename that has only alphanumeric and hyphen characters.", http.StatusBadRequest)
+			return
+		}
+	}
+	projInput := types.ProjectInput{Metadata: types.Metadata{Id: projInputId, Name: filename, Description: r.FormValue("description"), Timestamp: timestamp}, Type: projType, NormalizedName: normName}
 	logrus.Debug("trying to create a new input for the project", projectId, " with the details:", projInput)
-	if err := m2kFS.CreateProjectInput(workspaceId, projectId, projInput, file); err != nil {
+	if err := m2kFS.CreateProjectInput(workspaceId, projectId, projInput, file, isCommon); err != nil {
 		logrus.Errorf("failed to create the project input. Error: %q", err)
 		if _, ok := err.(types.ErrorDoesNotExist); ok {
 			w.WriteHeader(http.StatusNotFound)
@@ -99,19 +129,26 @@ func HandleCreateProjectInput(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleReadProjectInput is the handler for reading a project input
-func HandleReadProjectInput(w http.ResponseWriter, r *http.Request) {
+func HandleReadProjectInput(w http.ResponseWriter, r *http.Request, isCommon bool) {
 	logrus := GetLogger(r)
 	logrus.Trace("HandleReadProjectInput start")
 	defer logrus.Trace("HandleReadProjectInput end")
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	projInputId := mux.Vars(r)[PROJECT_INPUT_ID_ROUTE_VAR]
-	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) || !common.IsValidId(projInputId) {
-		logrus.Errorf("invalid id. Actual: %s %s %s", workspaceId, projectId, projInputId)
-		sendErrorJSON(w, "invalid id", http.StatusBadRequest)
+	if !common.IsValidId(workspaceId) || !common.IsValidId(projInputId) {
+		logrus.Errorf("invalid workspace and/or project input id. Actual: %s %s", workspaceId, projInputId)
+		sendErrorJSON(w, "invalid workspace and/or project input id", http.StatusBadRequest)
 		return
 	}
-	projInput, file, err := m2kFS.ReadProjectInput(workspaceId, projectId, projInputId)
+	if !isCommon {
+		if !common.IsValidId(projectId) {
+			logrus.Errorf("invalid project id. Actual: %s", projectId)
+			sendErrorJSON(w, "invalid project id", http.StatusBadRequest)
+			return
+		}
+	}
+	projInput, file, err := m2kFS.ReadProjectInput(workspaceId, projectId, projInputId, isCommon)
 	if err != nil {
 		logrus.Errorf("failed to get the input with id %s for the project %s . Error: %q", projInputId, projectId, err)
 		if _, ok := err.(types.ErrorDoesNotExist); ok {
@@ -132,19 +169,26 @@ func HandleReadProjectInput(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleDeleteProjectInput is the handler for deleting a project input
-func HandleDeleteProjectInput(w http.ResponseWriter, r *http.Request) {
+func HandleDeleteProjectInput(w http.ResponseWriter, r *http.Request, isCommon bool) {
 	logrus := GetLogger(r)
 	logrus.Trace("HandleDeleteProjectInput start")
 	defer logrus.Trace("HandleDeleteProjectInput end")
 	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
 	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
 	projInputId := mux.Vars(r)[PROJECT_INPUT_ID_ROUTE_VAR]
-	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) || !common.IsValidId(projInputId) {
-		logrus.Errorf("invalid id. Actual: %s %s %s", workspaceId, projectId, projInputId)
-		sendErrorJSON(w, "invalid id", http.StatusBadRequest)
+	if !common.IsValidId(workspaceId) || !common.IsValidId(projInputId) {
+		logrus.Errorf("invalid workspace and/or project input id. Actual: %s %s", workspaceId, projInputId)
+		sendErrorJSON(w, "invalid workspace and/or project input id", http.StatusBadRequest)
 		return
 	}
-	if err := m2kFS.DeleteProjectInput(workspaceId, projectId, projInputId); err != nil {
+	if !isCommon {
+		if !common.IsValidId(projectId) {
+			logrus.Errorf("invalid project id. Actual: %s", projectId)
+			sendErrorJSON(w, "invalid project id", http.StatusBadRequest)
+			return
+		}
+	}
+	if err := m2kFS.DeleteProjectInput(workspaceId, projectId, projInputId, isCommon); err != nil {
 		logrus.Errorf("failed to delete the input %s of the project %s . Error: %q", projInputId, projectId, err)
 		if _, ok := err.(types.ErrorDoesNotExist); ok {
 			w.WriteHeader(http.StatusNotFound)

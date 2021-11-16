@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 
 	"github.com/konveyor/move2kube-api/internal/authserver"
@@ -60,11 +59,6 @@ func Setup() error {
 		return fmt.Errorf("failed to make the data directory path %s absolute. Error: %q", common.Config.DataDir, err)
 	}
 	common.Config.DataDir = absDataDir
-	projDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR)
-	logrus.Debugf("making the projects directory at %s", projDir)
-	if err := os.MkdirAll(projDir, filesystem.DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
-		return fmt.Errorf("failed to make the projects directory at path %s . Error: %q", projDir, err)
-	}
 	logrus.Debug("creating the filesystem object")
 	m2kFS = filesystem.NewFileSystem()
 	if common.Config.AuthEnabled {
