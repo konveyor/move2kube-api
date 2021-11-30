@@ -49,10 +49,16 @@ import (
 )
 
 const (
-	// PROJECT_INPUTS_DIR is the directory where project inputs are stored
-	PROJECT_INPUTS_DIR = "inputs"
+	// WORKSPACES_DIR is the name of the directory where the workspaces are stored
+	WORKSPACES_DIR = "workspaces"
+	// PROJECTS_DIR is the name of the directory where the projects are stored
+	PROJECTS_DIR = "projects"
+	// INPUTS_DIR is the directory where project inputs are stored
+	INPUTS_DIR = "inputs"
 	// PROJECT_OUTPUTS_DIR is the directory where project outputs are stored
 	PROJECT_OUTPUTS_DIR = "outputs"
+	// PROJECT_PLAN_DIR is the directory where planning is done
+	PROJECT_PLAN_DIR = "plan"
 	// ARCHIVES_DIR is the directory where the archive files for project inputs are stored
 	ARCHIVES_DIR = "archives"
 	// EXPANDED_DIR is the directory where the archive files for project inputs are expanded and stored
@@ -118,6 +124,29 @@ qa_server_bucket     [project_output_id] -> qa server metadata
 
 Filesystem structure:
 data/
+	workspaces/
+		work-id-1/
+			inputs/
+				archives/
+					sources/
+						lang-plat.zip
+						estore.tar.gz
+					customizations/
+						cust-1.zip
+						cust-2.zip
+				expanded/
+					sources/
+						lang-plat/
+						estore/
+						.m2kignore
+					customizations/
+						cust-1/
+						cust-2/
+					configs/
+						config-1.yaml
+						config-2.yaml
+					m2k.plan
+					m2kcli.log
 	projects/
 		project-id-1/
 			inputs/
@@ -353,6 +382,9 @@ func (*FileSystem) readWorkspace(t *bolt.Tx, workspaceId string) (types.Workspac
 	if err := json.Unmarshal(workBytes, &work); err != nil {
 		return work, fmt.Errorf("failed to unmarshal the workspace as json. Actual: %s\nError: %q", string(workBytes), err)
 	}
+	if work.Inputs == nil {
+		work.Inputs = map[string]types.ProjectInput{}
+	}
 	return work, nil
 }
 
@@ -406,6 +438,12 @@ func (fs *FileSystem) deleteWorkspace(t *bolt.Tx, workspaceId string) error {
 	for _, projectId := range work.ProjectIds {
 		if err := fs.deleteProject(t, workspaceId, projectId); err != nil {
 			logrus.Errorf("failed to delete the project %s in the workspace %s . Error: %q", projectId, workspaceId, err)
+			return err
+		}
+	}
+	for _, workInp := range work.Inputs {
+		if err := fs.deleteWorkspaceInput(t, workspaceId, workInp); err != nil {
+			logrus.Errorf("failed to delete the workspace level input %s in the workspace %s . Error: %q", workInp.Id, workspaceId, err)
 			return err
 		}
 	}
@@ -490,7 +528,7 @@ func (fs *FileSystem) createProject(t *bolt.Tx, workspaceId string, project type
 	}
 	// effects
 	logrus.Debugf("creating a new project: %+v in the workspace with id: %s", project, workspaceId)
-	projDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, project.Id)
+	projDir := filepath.Join(common.Config.DataDir, PROJECTS_DIR, project.Id)
 	if err := os.MkdirAll(projDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to make the project directory at path %s . Error: %q", projDir, err)
 	}
@@ -649,7 +687,7 @@ func (fs *FileSystem) deleteProject(t *bolt.Tx, workspaceId string, projectId st
 		}
 	}
 	// effects
-	projDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId)
+	projDir := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId)
 	if err := os.RemoveAll(projDir); err != nil {
 		return fmt.Errorf("failed to remove the project at path %s . Error: %q", projDir, err)
 	}
@@ -657,19 +695,145 @@ func (fs *FileSystem) deleteProject(t *bolt.Tx, workspaceId string, projectId st
 }
 
 // CreateProjectInput creates an input for the project in the filesystem
-func (fs *FileSystem) CreateProjectInput(workspaceId, projectId string, projInput types.ProjectInput, file io.Reader) error {
+func (fs *FileSystem) CreateProjectInput(workspaceId, projectId string, projInput types.ProjectInput, file io.Reader, isCommon bool) error {
 	db, err := fs.GetDatabase(false)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 	return db.Update(func(t *bolt.Tx) error {
+		if isCommon {
+			return fs.createWorkspaceInput(t, workspaceId, projInput, file)
+		}
 		return fs.createProjectInput(t, workspaceId, projectId, projInput, file)
 	})
 }
 
+func (fs *FileSystem) createWorkspaceInput(t *bolt.Tx, workspaceId string, workInput types.ProjectInput, file io.Reader) error {
+	// check conditions
+	work, err := fs.readWorkspace(t, workspaceId)
+	if err != nil {
+		return err
+	}
+	if _, ok := work.Inputs[workInput.Id]; ok {
+		return types.ErrorIdAlreadyInUse{Id: workInput.Id}
+	}
+	for _, pi := range work.Inputs {
+		if pi.NormalizedName == workInput.NormalizedName {
+			reason := fmt.Sprintf("You have already uploaded an input with the filename '%s'. Please pick a different one.", workInput.NormalizedName)
+			logrus.Debugf(reason)
+			return types.ErrorValidation{Reason: reason}
+		}
+	}
+	projs, err := fs.listProjects(t, workspaceId)
+	if err != nil {
+		for _, proj := range projs {
+			for _, pi := range proj.Inputs {
+				if pi.Type == types.ProjectInputReference {
+					continue
+				}
+				if pi.NormalizedName == workInput.NormalizedName {
+					reason := fmt.Sprintf("There is already an input with the filename '%s' for the project '%s'. Please pick a different one.", workInput.NormalizedName, proj.Id)
+					logrus.Debugf(reason)
+					return types.ErrorValidation{Reason: reason}
+				}
+			}
+		}
+	}
+	// update state
+	work.Inputs[workInput.Id] = workInput
+	lastDir := ""
+	if workInput.Type == types.ProjectInputSources {
+		lastDir = SOURCES_DIR
+	} else if workInput.Type == types.ProjectInputCustomizations {
+		lastDir = CUSTOMIZATIONS_DIR
+	} else if workInput.Type == types.ProjectInputConfigs {
+		lastDir = CONFIGS_DIR
+	} else if workInput.Type == types.ProjectInputReference {
+		return types.ErrorValidation{Reason: "reference input type is not valid for workspaces"}
+	} else {
+		return types.ErrorValidation{Reason: fmt.Sprintf("invalid workspace input type: %s", workInput.Type)}
+	}
+	if err := fs.updateWorkspace(t, work); err != nil {
+		return fmt.Errorf("failed to update the workspace with id: %s . Error: %q", workspaceId, err)
+	}
+	// effects
+	logrus.Debugf("creating a new input for the workspace %s with type %s and filename %s", workspaceId, workInput.Type, workInput.Name)
+	workInputsDir := filepath.Join(common.Config.DataDir, WORKSPACES_DIR, workspaceId, INPUTS_DIR)
+	archDir := filepath.Join(workInputsDir, ARCHIVES_DIR, lastDir)
+	archExpDir := filepath.Join(workInputsDir, EXPANDED_DIR, lastDir)
+	archivePath := filepath.Join(archDir, workInput.NormalizedName)
+	archiveExpandedPath := filepath.Join(archExpDir, workInput.NormalizedName)
+	if err := os.RemoveAll(archivePath); err != nil {
+		return fmt.Errorf("failed to remove the archive at path %s . Error: %q", archivePath, err)
+	}
+	if err := os.RemoveAll(archiveExpandedPath); err != nil {
+		return fmt.Errorf("failed to remove the archive expanded directory at the path %s . Error: %q", archiveExpandedPath, err)
+	}
+	if workInput.Type == types.ProjectInputConfigs {
+		// configs
+		if err := os.MkdirAll(archExpDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
+			return fmt.Errorf("failed to create a directory at the path %s . Error: %q", archExpDir, err)
+		}
+		// write the config file they uploaded
+		f, err := os.OpenFile(archiveExpandedPath, os.O_WRONLY|os.O_CREATE, DEFAULT_FILE_PERMISSIONS)
+		if err != nil {
+			return fmt.Errorf("failed to write the config file to the path %s . Error: %q", archivePath, err)
+		}
+		defer f.Close()
+		if _, err := io.Copy(f, file); err != nil {
+			return fmt.Errorf("failed to receive and write the config file to the path %s completely. Error: %q", archiveExpandedPath, err)
+		}
+		return nil
+	}
+	// sources and customizations
+	if err := os.MkdirAll(archDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
+		return fmt.Errorf("failed to create the archive directory at the path %s . Error: %q", archDir, err)
+	}
+	if err := putM2KIgnore(archExpDir); err != nil { // also creates the directory if it doesn't exist, overwrites if it does exist
+		return fmt.Errorf("failed to create a m2kignore file at the path %s . Error: %q", archExpDir, err)
+	}
+	if err := putM2KIgnore(archiveExpandedPath); err != nil { // TODO: is this necessary?
+		return fmt.Errorf("failed to create a m2kignore file at the path %s . Error: %q", archiveExpandedPath, err)
+	}
+	// write the archive they uploaded
+	f, err := os.OpenFile(archivePath, os.O_WRONLY|os.O_CREATE, DEFAULT_FILE_PERMISSIONS)
+	if err != nil {
+		return fmt.Errorf("failed to write the archive to the path %s . Error: %q", archivePath, err)
+	}
+	defer f.Close()
+	if _, err := io.Copy(f, file); err != nil {
+		return fmt.Errorf("failed to receive the archive file %s completely. Error: %q", workInput.Name, err)
+	}
+	// expand the archive
+	if err := archiver.Unarchive(archivePath, archiveExpandedPath); err != nil {
+		logrus.Debugf("failed to expand the archive at path %s into path %s . Trying other formats. Error: %q", archivePath, archiveExpandedPath, err)
+		filename := workInput.Name
+		if filepath.Ext(filename) == ".zip" {
+			if err := archiver.NewZip().Unarchive(archivePath, archiveExpandedPath); err != nil {
+				return fmt.Errorf("failed to expand the zip archive at path %s to the path %s . Error: %q", archivePath, archiveExpandedPath, err)
+			}
+		} else if filepath.Ext(filename) == ".tar" {
+			if err := archiver.NewTar().Unarchive(archivePath, archiveExpandedPath); err != nil {
+				return fmt.Errorf("failed to expand the tar archive at path %s to the path %s . Error: %q", archivePath, archiveExpandedPath, err)
+			}
+		} else if filepath.Ext(filename) == ".tgz" || strings.HasSuffix(filename, ".tar.gz") {
+			if err := archiver.NewTarGz().Unarchive(archivePath, archiveExpandedPath); err != nil {
+				return fmt.Errorf("failed to expand the tar.gz archive at path %s to the path %s . Error: %q", archivePath, archiveExpandedPath, err)
+			}
+		} else {
+			return fmt.Errorf("the archive at path %s is not in a supported format. Please use one of the supported formats: %+v", archivePath, VALID_ARCHIVE_EXTS)
+		}
+	}
+	return nil
+}
+
 func (fs *FileSystem) createProjectInput(t *bolt.Tx, workspaceId, projectId string, projInput types.ProjectInput, file io.Reader) error {
 	// check conditions
+	work, err := fs.readWorkspace(t, workspaceId)
+	if err != nil {
+		return err
+	}
 	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
 		return err
@@ -677,15 +841,25 @@ func (fs *FileSystem) createProjectInput(t *bolt.Tx, workspaceId, projectId stri
 	if _, ok := project.Inputs[projInput.Id]; ok {
 		return types.ErrorIdAlreadyInUse{Id: projInput.Id}
 	}
-	// check lock
-	if project.Status[types.ProjectStatusPlanning] {
-		return types.ErrorOngoing{Id: projectId}
+	if projInput.Type != types.ProjectInputReference {
+		for _, pi := range project.Inputs {
+			if pi.NormalizedName == projInput.NormalizedName {
+				reason := fmt.Sprintf("You have already uploaded an input with the filename '%s'. Please pick a different one.", projInput.NormalizedName)
+				logrus.Debugf(reason)
+				return types.ErrorValidation{Reason: reason}
+			}
+		}
+		for _, pi := range work.Inputs {
+			if pi.NormalizedName == projInput.NormalizedName {
+				reason := fmt.Sprintf("You have already uploaded a workspace input with the filename '%s'. Please pick a different one.", projInput.NormalizedName)
+				logrus.Debugf(reason)
+				return types.ErrorValidation{Reason: reason}
+			}
+		}
 	}
-	for _, pi := range project.Inputs {
-		if pi.NormalizedName == projInput.NormalizedName {
-			reason := fmt.Sprintf("You have already uploaded an input with the filename '%s'. Please pick a different one.", projInput.NormalizedName)
-			logrus.Debugf(reason)
-			return types.ErrorValidation{Reason: reason}
+	if projInput.Type == types.ProjectInputReference {
+		if _, ok := work.Inputs[projInput.Id]; !ok {
+			return types.ErrorDoesNotExist{Id: projInput.Id}
 		}
 	}
 	// update state
@@ -701,19 +875,24 @@ func (fs *FileSystem) createProjectInput(t *bolt.Tx, workspaceId, projectId stri
 	} else if projInput.Type == types.ProjectInputConfigs {
 		project.Status[types.ProjectStatusInputConfigs] = true
 		lastDir = CONFIGS_DIR
+	} else if projInput.Type == types.ProjectInputReference {
+		project.Status[types.ProjectStatusInputReference] = true
 	} else {
 		return types.ErrorValidation{Reason: fmt.Sprintf("invalid project input type: %s", projInput.Type)}
 	}
+	if err := fs.updateProject(t, workspaceId, project); err != nil {
+		return fmt.Errorf("failed to update the project with id: %s . Error: %q", projectId, err)
+	}
+	if projInput.Type == types.ProjectInputReference {
+		return nil
+	}
+	// effects
 	logrus.Debugf("creating a new input for the project %s with type %s and filename %s", projectId, projInput.Type, projInput.Name)
-	projInputsDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_INPUTS_DIR)
+	projInputsDir := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, INPUTS_DIR)
 	archDir := filepath.Join(projInputsDir, ARCHIVES_DIR, lastDir)
 	archExpDir := filepath.Join(projInputsDir, EXPANDED_DIR, lastDir)
 	archivePath := filepath.Join(archDir, projInput.NormalizedName)
 	archiveExpandedPath := filepath.Join(archExpDir, projInput.NormalizedName)
-	if err := fs.updateProject(t, workspaceId, project); err != nil {
-		return fmt.Errorf("failed to update the project with id: %s . Error: %q", projectId, err)
-	}
-	// effects
 	if err := os.RemoveAll(archivePath); err != nil {
 		return fmt.Errorf("failed to remove the archive at path %s . Error: %q", archivePath, err)
 	}
@@ -779,17 +958,48 @@ func (fs *FileSystem) createProjectInput(t *bolt.Tx, workspaceId, projectId stri
 }
 
 // ReadProjectInput returns a project input
-func (fs *FileSystem) ReadProjectInput(workspaceId, projectId, projInputId string) (projInput types.ProjectInput, file io.Reader, err error) {
+func (fs *FileSystem) ReadProjectInput(workspaceId, projectId, projInputId string, isCommon bool) (projInput types.ProjectInput, file io.Reader, err error) {
 	db, err := fs.GetDatabase(true)
 	if err != nil {
 		return projInput, file, err
 	}
 	defer db.Close()
 	err = db.View(func(t *bolt.Tx) error {
+		if isCommon {
+			projInput, file, err = fs.readWorkspaceInput(t, workspaceId, projInputId)
+			return err
+		}
 		projInput, file, err = fs.readProjectInput(t, workspaceId, projectId, projInputId)
 		return err
 	})
 	return projInput, file, err
+}
+
+func (fs *FileSystem) readWorkspaceInput(t *bolt.Tx, workspaceId, workInputId string) (workInput types.ProjectInput, file io.Reader, err error) {
+	work, err := fs.readWorkspace(t, workspaceId)
+	if err != nil {
+		return types.ProjectInput{}, nil, err
+	}
+	workInput, ok := work.Inputs[workInputId]
+	if !ok {
+		return workInput, nil, types.ErrorDoesNotExist{Id: workInputId}
+	}
+	workInputsDir := filepath.Join(common.Config.DataDir, WORKSPACES_DIR, workspaceId, INPUTS_DIR)
+	archivePath := ""
+	if workInput.Type == types.ProjectInputSources {
+		archivePath = filepath.Join(workInputsDir, ARCHIVES_DIR, SOURCES_DIR, workInput.NormalizedName)
+	} else if workInput.Type == types.ProjectInputCustomizations {
+		archivePath = filepath.Join(workInputsDir, ARCHIVES_DIR, CUSTOMIZATIONS_DIR, workInput.NormalizedName)
+	} else if workInput.Type == types.ProjectInputConfigs {
+		archivePath = filepath.Join(workInputsDir, EXPANDED_DIR, CONFIGS_DIR, workInput.NormalizedName)
+	} else {
+		return workInput, nil, types.ErrorValidation{Reason: fmt.Sprintf("invalid workspace input type: %s", workInput.Type)}
+	}
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return workInput, nil, fmt.Errorf("failed to open the project input with id: %s at path %s . Error: %q", workInputId, archivePath, err)
+	}
+	return workInput, f, nil
 }
 
 func (fs *FileSystem) readProjectInput(t *bolt.Tx, workspaceId, projectId, projInputId string) (projInput types.ProjectInput, file io.Reader, err error) {
@@ -801,7 +1011,7 @@ func (fs *FileSystem) readProjectInput(t *bolt.Tx, workspaceId, projectId, projI
 	if !ok {
 		return projInput, nil, types.ErrorDoesNotExist{Id: projInputId}
 	}
-	projInputsDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_INPUTS_DIR)
+	projInputsDir := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, INPUTS_DIR)
 	archivePath := ""
 	if projInput.Type == types.ProjectInputSources {
 		archivePath = filepath.Join(projInputsDir, ARCHIVES_DIR, SOURCES_DIR, projInput.NormalizedName)
@@ -809,6 +1019,8 @@ func (fs *FileSystem) readProjectInput(t *bolt.Tx, workspaceId, projectId, projI
 		archivePath = filepath.Join(projInputsDir, ARCHIVES_DIR, CUSTOMIZATIONS_DIR, projInput.NormalizedName)
 	} else if projInput.Type == types.ProjectInputConfigs {
 		archivePath = filepath.Join(projInputsDir, EXPANDED_DIR, CONFIGS_DIR, projInput.NormalizedName)
+	} else if projInput.Type == types.ProjectInputReference {
+		return fs.readWorkspaceInput(t, workspaceId, projInputId)
 	} else {
 		return projInput, nil, types.ErrorValidation{Reason: fmt.Sprintf("invalid project input type: %s", projInput.Type)}
 	}
@@ -820,15 +1032,72 @@ func (fs *FileSystem) readProjectInput(t *bolt.Tx, workspaceId, projectId, projI
 }
 
 // DeleteProjectInput deletes the project input
-func (fs *FileSystem) DeleteProjectInput(workspaceId, projectId, projInputId string) error {
+func (fs *FileSystem) DeleteProjectInput(workspaceId, projectId, projInputId string, isCommon bool) error {
 	db, err := fs.GetDatabase(false)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 	return db.Update(func(t *bolt.Tx) error {
+		if isCommon {
+			// check conditions
+			work, err := fs.readWorkspace(t, workspaceId)
+			if err != nil {
+				return err
+			}
+			workInputId := projInputId
+			workInput, ok := work.Inputs[workInputId]
+			if !ok {
+				return types.ErrorDoesNotExist{Id: workInputId}
+			}
+			// update state
+			delete(work.Inputs, workInputId)
+			if err := fs.updateWorkspace(t, work); err != nil {
+				return fmt.Errorf("failed to update project with id: %s . Error: %q", work.Id, err)
+			}
+			// effects
+			projs, err := fs.listProjects(t, workspaceId)
+			if err != nil {
+				return err
+			}
+			for _, proj := range projs {
+				if _, ok := proj.Inputs[workInputId]; !ok {
+					continue
+				}
+				if err := fs.deleteProjectInput(t, workspaceId, proj.Id, workInputId); err != nil {
+					return fmt.Errorf("failed to delete the reference to the workspace input '%s' from the project '%s' . Error: %q", workInputId, proj.Id, err)
+				}
+			}
+			return fs.deleteWorkspaceInput(t, workspaceId, workInput)
+		}
 		return fs.deleteProjectInput(t, workspaceId, projectId, projInputId)
 	})
+}
+
+func (fs *FileSystem) deleteWorkspaceInput(t *bolt.Tx, workspaceId string, workInput types.ProjectInput) error {
+	workInputsDir := filepath.Join(common.Config.DataDir, WORKSPACES_DIR, workspaceId, INPUTS_DIR)
+	archivePath := ""
+	archiveExpandedPath := ""
+	if workInput.Type == types.ProjectInputSources {
+		archivePath = filepath.Join(workInputsDir, ARCHIVES_DIR, SOURCES_DIR, workInput.NormalizedName)
+		archiveExpandedPath = filepath.Join(workInputsDir, EXPANDED_DIR, SOURCES_DIR, workInput.NormalizedName)
+	} else if workInput.Type == types.ProjectInputCustomizations {
+		archivePath = filepath.Join(workInputsDir, ARCHIVES_DIR, CUSTOMIZATIONS_DIR, workInput.NormalizedName)
+		archiveExpandedPath = filepath.Join(workInputsDir, EXPANDED_DIR, CUSTOMIZATIONS_DIR, workInput.NormalizedName)
+	} else if workInput.Type == types.ProjectInputConfigs {
+		archiveExpandedPath = filepath.Join(workInputsDir, EXPANDED_DIR, CONFIGS_DIR, workInput.NormalizedName)
+	} else {
+		return types.ErrorValidation{Reason: fmt.Sprintf("invalid input type for workspace level input: %s", workInput.Type)}
+	}
+	if workInput.Type != types.ProjectInputConfigs {
+		if err := os.RemoveAll(archivePath); err != nil {
+			return fmt.Errorf("failed to delete the archive file with id: %s at path %s . Error: %q", workInput.Id, archivePath, err)
+		}
+	}
+	if err := os.RemoveAll(archiveExpandedPath); err != nil {
+		return fmt.Errorf("failed to delete the expanded archive directory/config file at path %s . Error: %q", archiveExpandedPath, err)
+	}
+	return nil
 }
 
 func (fs *FileSystem) deleteProjectInput(t *bolt.Tx, workspaceId, projectId, projInputId string) error {
@@ -841,13 +1110,9 @@ func (fs *FileSystem) deleteProjectInput(t *bolt.Tx, workspaceId, projectId, pro
 	if !ok {
 		return types.ErrorDoesNotExist{Id: projInputId}
 	}
-	// check lock
-	if project.Status[types.ProjectStatusPlanning] {
-		return types.ErrorOngoing{Id: projectId}
-	}
 	// update state
 	project.Status[types.ProjectStatusStalePlan] = true
-	projInputsDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_INPUTS_DIR)
+	projInputsDir := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, INPUTS_DIR)
 	archivePath := ""
 	archiveExpandedPath := ""
 	if projInput.Type == types.ProjectInputSources {
@@ -858,6 +1123,8 @@ func (fs *FileSystem) deleteProjectInput(t *bolt.Tx, workspaceId, projectId, pro
 		archiveExpandedPath = filepath.Join(projInputsDir, EXPANDED_DIR, CUSTOMIZATIONS_DIR, projInput.NormalizedName)
 	} else if projInput.Type == types.ProjectInputConfigs {
 		archiveExpandedPath = filepath.Join(projInputsDir, EXPANDED_DIR, CONFIGS_DIR, projInput.NormalizedName)
+	} else if projInput.Type == types.ProjectInputReference {
+		// there is no path that needs to be deleted for references since they are common to the workspace
 	} else {
 		return types.ErrorValidation{Reason: fmt.Sprintf("invalid project input type: %s", projInput.Type)}
 	}
@@ -874,12 +1141,17 @@ func (fs *FileSystem) deleteProjectInput(t *bolt.Tx, workspaceId, projectId, pro
 			project.Status[types.ProjectStatusInputSources] = false
 		} else if projInput.Type == types.ProjectInputCustomizations {
 			project.Status[types.ProjectStatusInputCustomizations] = false
-		} else {
+		} else if projInput.Type == types.ProjectInputConfigs {
 			project.Status[types.ProjectStatusInputConfigs] = false
+		} else {
+			project.Status[types.ProjectStatusInputReference] = false
 		}
 	}
 	if err := fs.updateProject(t, workspaceId, project); err != nil {
 		return fmt.Errorf("failed to update project with id: %s . Error: %q", projectId, err)
+	}
+	if projInput.Type == types.ProjectInputReference {
+		return nil
 	}
 	// effects
 	if projInput.Type != types.ProjectInputConfigs {
@@ -896,8 +1168,11 @@ func (fs *FileSystem) deleteProjectInput(t *bolt.Tx, workspaceId, projectId, pro
 // StartPlanning starts the generation of a plan for a project.
 // If plan generation is ongoing it will return an error.
 func (fs *FileSystem) StartPlanning(workspaceId, projectId string, debugMode bool) error {
+	logrus.Trace("FileSystem.StartPlanning start")
+	defer logrus.Trace("FileSystem.StartPlanning end")
 	db, err := fs.GetDatabase(false)
 	if err != nil {
+		logrus.Debugf("failed to get the database. Error: %q", err)
 		return err
 	}
 	defer db.Close()
@@ -907,40 +1182,47 @@ func (fs *FileSystem) StartPlanning(workspaceId, projectId string, debugMode boo
 }
 
 func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, debugMode bool) error {
+	logrus.Trace("FileSystem.startPlanning start")
+	defer logrus.Trace("FileSystem.startPlanning end")
 	// check conditions
 	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
 		return err
 	}
-	// check lock
 	if project.Status[types.ProjectStatusPlanning] {
 		return types.ErrorOngoing{Id: projectId}
 	}
 	if !project.Status[types.ProjectStatusInputSources] {
-		return types.ErrorValidation{Reason: "the project has no input sources"}
+		if !project.Status[types.ProjectStatusInputReference] {
+			return types.ErrorValidation{Reason: "the project has no source folders as input"}
+		}
+		work, err := fs.readWorkspace(t, workspaceId)
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, inp := range project.Inputs {
+			if inp.Type != types.ProjectInputReference {
+				continue
+			}
+			actualInp := work.Inputs[inp.Id]
+			if actualInp.Type == types.ProjectInputSources {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return types.ErrorValidation{Reason: "the project has no source folders as input"}
+		}
 	}
 	// update state
-	// acquire lock
+	logrus.Debugf("just before updating state before starting planning for project %s in workspace %s", projectId, workspaceId)
 	project.Status[types.ProjectStatusPlanning] = true
 	if err := fs.updateProject(t, workspaceId, project); err != nil {
 		return fmt.Errorf("failed to update the project with id %s . Error: %q", projectId, err)
 	}
 	message := "Project: " + project.Id + ";"
-	currentRunDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, project.Id, PROJECT_INPUTS_DIR, EXPANDED_DIR)
-	currentRunSrcDir := filepath.Join(currentRunDir, SOURCES_DIR)
-	currentRunCustDir := ""
-	if project.Status[types.ProjectStatusInputCustomizations] {
-		currentRunCustDir = filepath.Join(currentRunDir, CUSTOMIZATIONS_DIR)
-	}
-	var currentRunConfigPaths []string = nil
-	if project.Status[types.ProjectStatusInputConfigs] {
-		currConfigsDir := filepath.Join(currentRunDir, CONFIGS_DIR)
-		currentRunConfigPaths, err = getConfigPaths(currConfigsDir, project)
-		if err != nil {
-			return fmt.Errorf("failed to get the config paths from the directory %s . Error: %q", currConfigsDir, err)
-		}
-	}
-	// This file contains the metadata about a run (host and port of the QA engine's http server, etc.)
+	// This contains the metadata about a run (host and port of the plan progress server, etc.)
 	planProgressServerMeta := types.QAServerMetadata{Host: getDNSHostName(), Debug: debugMode}
 	if planProgressServerMeta.Host == "" {
 		planProgressServerMeta.Host = "localhost"
@@ -962,7 +1244,91 @@ func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, d
 		return fmt.Errorf("failed to save the plan progress metadata in the bucket '%s' for the project with id %s . Error: %q", M2K_PLAN_PROGRESS_SERVER_METADATA_FILE, projectId, err)
 	}
 	// effects
+	logrus.Debugf("just before starting effects before starting planning for project %s in workspace %s", projectId, workspaceId)
+	projInputsDir := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, INPUTS_DIR)
+	currentRunDir, err := ioutil.TempDir("", fmt.Sprintf("plan-%s-*", projectId))
+	if err != nil {
+		return fmt.Errorf("failed to create a temporary directory to run plan in. Error: %q", err)
+	}
+	currentRunSrcDir := filepath.Join(currentRunDir, SOURCES_DIR)
+	if project.Status[types.ProjectStatusInputSources] {
+		currentRunSrcDirSrc := filepath.Join(projInputsDir, EXPANDED_DIR, SOURCES_DIR)
+		if err := copyDir(currentRunSrcDirSrc, currentRunSrcDir); err != nil {
+			return fmt.Errorf("failed to copy the sources directory from %s to %s for the current run. Error: %q", currentRunSrcDirSrc, currentRunSrcDir, err)
+		}
+	}
+	currentRunCustDir := ""
+	if project.Status[types.ProjectStatusInputCustomizations] {
+		currentRunCustDir = filepath.Join(currentRunDir, CUSTOMIZATIONS_DIR)
+		currentRunCustDirSrc := filepath.Join(projInputsDir, EXPANDED_DIR, CUSTOMIZATIONS_DIR)
+		if err := copyDir(currentRunCustDirSrc, currentRunCustDir); err != nil {
+			return fmt.Errorf("failed to copy the customizations directory from %s to %s for the current run. Error: %q", currentRunCustDirSrc, currentRunCustDir, err)
+		}
+	}
+	currentRunConfigsDir := filepath.Join(currentRunDir, CONFIGS_DIR)
+	var currentRunConfigPaths []string = nil
+	if project.Status[types.ProjectStatusInputConfigs] {
+		currentRunConfigsDirSrc := filepath.Join(projInputsDir, EXPANDED_DIR, CONFIGS_DIR)
+		if err := copyDir(currentRunConfigsDirSrc, currentRunConfigsDir); err != nil {
+			return fmt.Errorf("failed to copy the configs directory from %s to %s for the current run. Error: %q", currentRunConfigsDirSrc, currentRunConfigsDir, err)
+		}
+		currentRunConfigPaths, err = getConfigPaths(currentRunConfigsDir, project)
+		if err != nil {
+			return fmt.Errorf("failed to get the config paths from the directory %s . Error: %q", currentRunConfigsDir, err)
+		}
+	}
+	// copy over common workspace level inputs
+	logrus.Debugf("just before copying over reference type inputs before starting planning for project %s in workspace %s", projectId, workspaceId)
+	if project.Status[types.ProjectStatusInputReference] {
+		work, err := fs.readWorkspace(t, workspaceId)
+		if err != nil {
+			return err
+		}
+		workInputsDir := filepath.Join(common.Config.DataDir, WORKSPACES_DIR, workspaceId, INPUTS_DIR, EXPANDED_DIR)
+		commonConfigPaths := []string{}
+		for _, inp := range project.Inputs {
+			if inp.Type != types.ProjectInputReference {
+				continue
+			}
+			inpPathSrc := ""
+			inpPathDst := ""
+			workInp := work.Inputs[inp.Id]
+			if workInp.Type == types.ProjectInputSources {
+				inpPathSrc = filepath.Join(workInputsDir, SOURCES_DIR, workInp.NormalizedName)
+				inpPathDst = filepath.Join(currentRunSrcDir, workInp.NormalizedName)
+				if err := os.MkdirAll(currentRunSrcDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
+					return fmt.Errorf("failed to create the sources directory at the path %s . Error: %q", currentRunSrcDir, err)
+				}
+				if err := copyDir(inpPathSrc, inpPathDst); err != nil {
+					return fmt.Errorf("failed to copy the reference sources directory from %s to %s for the current run. Error: %q", inpPathSrc, inpPathDst, err)
+				}
+			}
+			if workInp.Type == types.ProjectInputCustomizations {
+				inpPathSrc = filepath.Join(workInputsDir, CUSTOMIZATIONS_DIR, workInp.NormalizedName)
+				inpPathDst = filepath.Join(currentRunCustDir, workInp.NormalizedName)
+				if err := os.MkdirAll(currentRunCustDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
+					return fmt.Errorf("failed to create the customizations directory at the path %s . Error: %q", currentRunCustDir, err)
+				}
+				if err := copyDir(inpPathSrc, inpPathDst); err != nil {
+					return fmt.Errorf("failed to copy the reference customizations directory from %s to %s for the current run. Error: %q", inpPathSrc, inpPathDst, err)
+				}
+			}
+			if workInp.Type == types.ProjectInputConfigs {
+				inpPathSrc = filepath.Join(workInputsDir, CONFIGS_DIR, workInp.NormalizedName)
+				inpPathDst = filepath.Join(currentRunConfigsDir, workInp.NormalizedName)
+				if err := os.MkdirAll(currentRunConfigsDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
+					return fmt.Errorf("failed to create the configs directory at the path %s . Error: %q", currentRunConfigsDir, err)
+				}
+				if err := CopyFile(inpPathDst, inpPathSrc); err != nil {
+					return fmt.Errorf("failed to copy the reference configs file from %s to %s for the current run. Error: %q", inpPathSrc, inpPathDst, err)
+				}
+				commonConfigPaths = append(commonConfigPaths, inpPathDst)
+			}
+		}
+		currentRunConfigPaths = append(commonConfigPaths, currentRunConfigPaths...)
+	}
 	// start plan generation
+	logrus.Debugf("just before starting planning for project %s in workspace %s", projectId, workspaceId)
 	go fs.runPlan(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunDir, message, planProgressServerMeta.Port, workspaceId, projectId, project.Name, debugMode)
 	logrus.Infof("Planning started for the project with id %s", projectId)
 	return nil
@@ -989,7 +1355,7 @@ func (fs *FileSystem) readPlan(t *bolt.Tx, workspaceId, projectId string) (file 
 		return nil, err
 	}
 	// check lock
-	currentRunDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_INPUTS_DIR, EXPANDED_DIR)
+	currentRunDir := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, INPUTS_DIR, EXPANDED_DIR)
 	if project.Status[types.ProjectStatusPlanning] {
 		planBucket := t.Bucket([]byte(M2K_PLAN_PROGRESS_SERVER_METADATA_FILE))
 		if planBucket == nil {
@@ -1046,7 +1412,27 @@ func (fs *FileSystem) updatePlan(t *bolt.Tx, workspaceId, projectId string, plan
 	}
 	// check lock
 	if !project.Status[types.ProjectStatusInputSources] {
-		return types.ErrorValidation{Reason: "the project does not have any folders with source code. Please upload sources before updating the plan"}
+		if !project.Status[types.ProjectStatusInputReference] {
+			return types.ErrorValidation{Reason: "the project does not have any folders with source code. Please upload sources before updating the plan"}
+		}
+		work, err := fs.readWorkspace(t, workspaceId)
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, inp := range project.Inputs {
+			if inp.Type != types.ProjectInputReference {
+				continue
+			}
+			actualInp := work.Inputs[inp.Id]
+			if actualInp.Type == types.ProjectInputSources {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return types.ErrorValidation{Reason: "the project does not have any folders with source code. Please upload sources before updating the plan"}
+		}
 	}
 	if project.Status[types.ProjectStatusPlanning] {
 		return types.ErrorOngoing{Id: projectId}
@@ -1066,7 +1452,7 @@ func (fs *FileSystem) updatePlan(t *bolt.Tx, workspaceId, projectId string, plan
 		return fmt.Errorf("failed to update the project %s in the workspace %s . Error: %q", projectId, workspaceId, err)
 	}
 	// effects
-	planFilePath := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_INPUTS_DIR, EXPANDED_DIR, M2K_PLAN_FILENAME)
+	planFilePath := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, INPUTS_DIR, EXPANDED_DIR, M2K_PLAN_FILENAME)
 	if err := ioutil.WriteFile(planFilePath, planBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to write to the plan file at path %s . Error: %q", planFilePath, err)
 	}
@@ -1105,7 +1491,7 @@ func (fs *FileSystem) deletePlan(t *bolt.Tx, workspaceId, projectId string) erro
 		return fmt.Errorf("failed to update the project with id %s . Error: %q", projectId, err)
 	}
 	// effects
-	planFilePath := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_INPUTS_DIR, EXPANDED_DIR, M2K_PLAN_FILENAME)
+	planFilePath := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, INPUTS_DIR, EXPANDED_DIR, M2K_PLAN_FILENAME)
 	if err := os.RemoveAll(planFilePath); err != nil {
 		return fmt.Errorf("failed to delete the plan file at path %s . Error: %q", planFilePath, err)
 	}
@@ -1149,7 +1535,7 @@ func (fs *FileSystem) resumeTransformation(t *bolt.Tx, workspaceId, projectId, p
 	if qaServerMetaBytes == nil {
 		return fmt.Errorf("the qa server metadata is missing for the output %s of project with id %s", projOutputId, projectId)
 	}
-	currentRunDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutputId)
+	currentRunDir := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutputId)
 	qaServerMeta := types.QAServerMetadata{}
 	if err := json.Unmarshal(qaServerMetaBytes, &qaServerMeta); err != nil {
 		logrus.Errorf("failed to unmarshal the qa server metadata as json. Actual: %s\nError: %q", string(qaServerMetaBytes), err)
@@ -1186,13 +1572,30 @@ func (fs *FileSystem) resumeTransformation(t *bolt.Tx, workspaceId, projectId, p
 	currentRunOutDir := filepath.Join(currentRunDir, "output")
 	message := "Project: " + projectId + "; Output:" + projOutputId + ";"
 	transformCh := make(chan error, 2)
+	currentRunConfigsDir := filepath.Join(currentRunDir, CONFIGS_DIR)
 	var currentRunConfigPaths []string = nil
 	if project.Status[types.ProjectStatusInputConfigs] {
-		currConfigsDir := filepath.Join(currentRunDir, CONFIGS_DIR)
-		currentRunConfigPaths, err = getConfigPaths(currConfigsDir, project)
+		currentRunConfigPaths, err = getConfigPaths(currentRunConfigsDir, project)
 		if err != nil {
-			return fmt.Errorf("failed to get the config paths from the directory %s . Error: %q", currConfigsDir, err)
+			return fmt.Errorf("failed to get the config paths from the directory %s . Error: %q", currentRunConfigsDir, err)
 		}
+	}
+	if project.Status[types.ProjectStatusInputReference] {
+		work, err := fs.readWorkspace(t, workspaceId)
+		if err != nil {
+			return err
+		}
+		commonConfigPaths := []string{}
+		for _, inp := range project.Inputs {
+			if inp.Type != types.ProjectInputReference {
+				continue
+			}
+			workInp := work.Inputs[inp.Id]
+			if workInp.Type == types.ProjectInputConfigs {
+				commonConfigPaths = append(commonConfigPaths, filepath.Join(currentRunConfigsDir, workInp.NormalizedName))
+			}
+		}
+		currentRunConfigPaths = append(commonConfigPaths, currentRunConfigPaths...)
 	}
 	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode)
 	return nil
@@ -1220,12 +1623,32 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 		return types.ErrorIdAlreadyInUse{Id: projOutput.Id}
 	}
 	if !project.Status[types.ProjectStatusInputSources] {
-		return types.ErrorValidation{Reason: "the project has no input sources"}
+		if !project.Status[types.ProjectStatusInputReference] {
+			return types.ErrorValidation{Reason: "the project has no source folders as input"}
+		}
+		work, err := fs.readWorkspace(t, workspaceId)
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, inp := range project.Inputs {
+			if inp.Type != types.ProjectInputReference {
+				continue
+			}
+			actualInp := work.Inputs[inp.Id]
+			if actualInp.Type == types.ProjectInputSources {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return types.ErrorValidation{Reason: "the project has no source folders as input"}
+		}
 	}
 	if !project.Status[types.ProjectStatusPlan] {
 		return types.ErrorValidation{Reason: "the project has no plan"}
 	}
-	projInputsDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_INPUTS_DIR)
+	projInputsDir := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, INPUTS_DIR)
 	var planBytes []byte
 	if plan == nil {
 		srcPlanPath := filepath.Join(projInputsDir, EXPANDED_DIR, M2K_PLAN_FILENAME)
@@ -1276,7 +1699,7 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 		return fmt.Errorf("failed to update the qa server metadata in the bucket. Error: %q", err)
 	}
 	// effects
-	currentRunDir := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutput.Id)
+	currentRunDir := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutput.Id)
 	if err := os.MkdirAll(currentRunDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to make the project output directory at path %s . Error: %q", currentRunDir, err)
 	}
@@ -1285,10 +1708,12 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 		return fmt.Errorf("failed to write the plan to a file at path %s . Error: %q", planPath, err)
 	}
 	// copy the source and customizations directories into the run directory
-	srcPath := filepath.Join(projInputsDir, EXPANDED_DIR, SOURCES_DIR)
 	currentRunSrcDir := filepath.Join(currentRunDir, SOURCES_DIR)
-	if err := copyDir(srcPath, currentRunSrcDir); err != nil {
-		return fmt.Errorf("failed to copy the source directory from %s to %s for the current run. Error: %q", srcPath, currentRunSrcDir, err)
+	if project.Status[types.ProjectStatusInputSources] {
+		srcPath := filepath.Join(projInputsDir, EXPANDED_DIR, SOURCES_DIR)
+		if err := copyDir(srcPath, currentRunSrcDir); err != nil {
+			return fmt.Errorf("failed to copy the sources directory from %s to %s for the current run. Error: %q", srcPath, currentRunSrcDir, err)
+		}
 	}
 	currentRunCustDir := ""
 	if project.Status[types.ProjectStatusInputCustomizations] {
@@ -1298,21 +1723,70 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 			return fmt.Errorf("failed to copy the customizations directory from %s to %s for the current run. Error: %q", custPath, currentRunCustDir, err)
 		}
 	}
+	currentRunConfigsDir := filepath.Join(currentRunDir, CONFIGS_DIR)
 	var currentRunConfigPaths []string = nil
 	if project.Status[types.ProjectStatusInputConfigs] {
 		configsPath := filepath.Join(projInputsDir, EXPANDED_DIR, CONFIGS_DIR)
-		currConfigsDir := filepath.Join(currentRunDir, CONFIGS_DIR)
-		if err := copyDir(configsPath, currConfigsDir); err != nil {
-			return fmt.Errorf("failed to copy the customizations directory from %s to %s for the current run. Error: %q", configsPath, currConfigsDir, err)
+		if err := copyDir(configsPath, currentRunConfigsDir); err != nil {
+			return fmt.Errorf("failed to copy the customizations directory from %s to %s for the current run. Error: %q", configsPath, currentRunConfigsDir, err)
 		}
-		currentRunConfigPaths, err = getConfigPaths(currConfigsDir, project)
+		currentRunConfigPaths, err = getConfigPaths(currentRunConfigsDir, project)
 		if err != nil {
-			return fmt.Errorf("failed to get the config paths from the directory %s . Error: %q", currConfigsDir, err)
+			return fmt.Errorf("failed to get the config paths from the directory %s . Error: %q", currentRunConfigsDir, err)
 		}
 	}
 	currentRunOutDir := filepath.Join(currentRunDir, "output")
 	message := "Project: " + projectId + "; Output:" + projOutput.Id + ";"
 	transformCh := make(chan error, 2)
+	// get common workspace level inputs
+	if project.Status[types.ProjectStatusInputReference] {
+		work, err := fs.readWorkspace(t, workspaceId)
+		if err != nil {
+			return err
+		}
+		workInputsDir := filepath.Join(common.Config.DataDir, WORKSPACES_DIR, workspaceId, INPUTS_DIR, EXPANDED_DIR)
+		commonConfigPaths := []string{}
+		for _, inp := range project.Inputs {
+			if inp.Type != types.ProjectInputReference {
+				continue
+			}
+			inpPathSrc := ""
+			inpPathDst := ""
+			workInp := work.Inputs[inp.Id]
+			if workInp.Type == types.ProjectInputSources {
+				inpPathSrc = filepath.Join(workInputsDir, SOURCES_DIR, workInp.NormalizedName)
+				inpPathDst = filepath.Join(currentRunSrcDir, workInp.NormalizedName)
+				if err := os.MkdirAll(currentRunSrcDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
+					return fmt.Errorf("failed to create the sources directory at the path %s . Error: %q", currentRunSrcDir, err)
+				}
+				if err := copyDir(inpPathSrc, inpPathDst); err != nil {
+					return fmt.Errorf("failed to copy the reference sources directory from path %s to %s . Error: %q", inpPathSrc, inpPathDst, err)
+				}
+			}
+			if workInp.Type == types.ProjectInputCustomizations {
+				inpPathSrc = filepath.Join(workInputsDir, CUSTOMIZATIONS_DIR, workInp.NormalizedName)
+				inpPathDst = filepath.Join(currentRunCustDir, workInp.NormalizedName)
+				if err := os.MkdirAll(currentRunCustDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
+					return fmt.Errorf("failed to create the customizations directory at the path %s . Error: %q", currentRunCustDir, err)
+				}
+				if err := copyDir(inpPathSrc, inpPathDst); err != nil {
+					return fmt.Errorf("failed to copy the reference customizations directory from path %s to %s . Error: %q", inpPathSrc, inpPathDst, err)
+				}
+			}
+			if workInp.Type == types.ProjectInputConfigs {
+				inpPathSrc = filepath.Join(workInputsDir, CONFIGS_DIR, workInp.NormalizedName)
+				inpPathDst = filepath.Join(currentRunConfigsDir, workInp.NormalizedName)
+				if err := os.MkdirAll(currentRunConfigsDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
+					return fmt.Errorf("failed to create the configs directory at the path %s . Error: %q", currentRunConfigsDir, err)
+				}
+				if err := CopyFile(inpPathDst, inpPathSrc); err != nil {
+					return fmt.Errorf("failed to copy the reference config file from path %s to %s . Error: %q", inpPathSrc, inpPathDst, err)
+				}
+				commonConfigPaths = append(commonConfigPaths, inpPathDst)
+			}
+		}
+		currentRunConfigPaths = append(commonConfigPaths, currentRunConfigPaths...)
+	}
 	// start the transformation
 	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode)
 	logrus.Infof("Waiting for QA engine to start for the output %s of the project %s", projOutput.Id, projectId)
@@ -1355,7 +1829,7 @@ func (fs *FileSystem) readProjectOutput(t *bolt.Tx, workspaceId, projectId, proj
 		}
 		return projOutput, nil, types.ErrorDoesNotExist{Id: projOutputId}
 	}
-	projOutputPath := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutputId, "output.zip")
+	projOutputPath := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutputId, "output.zip")
 	f, err := os.Open(projOutputPath)
 	if err != nil {
 		return projOutput, nil, fmt.Errorf("failed to read the project output file at path %s . Error: %q", projOutputPath, err)
@@ -1398,7 +1872,7 @@ func (fs *FileSystem) deleteProjectOutput(t *bolt.Tx, workspaceId, projectId, pr
 		return fmt.Errorf("failed to update project id: %s . Error: %q", projectId, err)
 	}
 	// effects
-	projOutputPath := filepath.Join(common.Config.DataDir, common.PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutputId)
+	projOutputPath := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutputId)
 	if err := os.RemoveAll(projOutputPath); err != nil {
 		return fmt.Errorf("failed to remove the project output with id: %s directory at path %s . Error: %q", projOutputId, projOutputPath, err)
 	}
@@ -1537,6 +2011,16 @@ func (fs *FileSystem) postSolution(t *bolt.Tx, workspaceId, projectId, projOutpu
 func NewFileSystem() *FileSystem {
 	logrus.Trace("NewFileSystem start")
 	defer logrus.Trace("NewFileSystem end")
+	workDir := filepath.Join(common.Config.DataDir, WORKSPACES_DIR)
+	logrus.Debugf("making the workspaces directory at %s", workDir)
+	if err := os.MkdirAll(workDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
+		logrus.Fatalf("failed to make the workspaces directory at path %s . Error: %q", workDir, err)
+	}
+	projDir := filepath.Join(common.Config.DataDir, PROJECTS_DIR)
+	logrus.Debugf("making the projects directory at %s", projDir)
+	if err := os.MkdirAll(projDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
+		logrus.Fatalf("failed to make the projects directory at path %s . Error: %q", projDir, err)
+	}
 	fileSystem := new(FileSystem)
 	db, err := fileSystem.GetDatabase(false)
 	if err != nil {
@@ -1729,17 +2213,24 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 		return err
 	}
 	defer db.Close()
-	return db.Update(func(t *bolt.Tx) error {
+	err = db.Update(func(t *bolt.Tx) error {
+		logrus.Trace("planning finished. Update start")
+		defer logrus.Trace("planning finished. Update end")
+		// checks
+		logrus.Debug("planning finished. inside Update. just before checks start")
 		project, err := fs.readProject(t, workspaceId, projectId)
 		if err != nil {
 			logrus.Errorf("inside runPlan, failed to read the project after planning completed. Error: %q", err)
 			return err
 		}
+		// update state
+		logrus.Debug("planning finished. inside Update. just before update start")
 		project.Status[types.ProjectStatusPlanning] = false
 		project.Status[types.ProjectStatusPlan] = true
 		project.Status[types.ProjectStatusStalePlan] = false
 		project.Status[types.ProjectStatusPlanError] = false
 		if isCtxClosed {
+			logrus.Debug("planning finished. inside Update. inside isCtxClosed if block")
 			// planning was interrupted for some reason
 			project.Status[types.ProjectStatusPlan] = false
 			project.Status[types.ProjectStatusPlanError] = true
@@ -1754,8 +2245,23 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 		if err := fs.updateProject(t, workspaceId, project); err != nil {
 			return fmt.Errorf("failed to update the project to unlock the plan generation. Error: %q", err)
 		}
+		// effects
+		logrus.Debug("planning finished. inside Update. just before effects start")
+		projInputsDir := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, INPUTS_DIR, EXPANDED_DIR)
+		dstPlanPath := filepath.Join(projInputsDir, M2K_PLAN_FILENAME)
+		srcPlanPath := filepath.Join(currentRunOutDir, M2K_PLAN_FILENAME)
+		if err := os.MkdirAll(projInputsDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
+			return fmt.Errorf("failed to create the project inputs expanded directory at path %s to copy the plan to. Error: %q", projInputsDir, err)
+		}
+		if err := CopyFile(dstPlanPath, srcPlanPath); err != nil {
+			return fmt.Errorf("failed to copy the plan file from %s to %s after planning finished. Error: %q", srcPlanPath, dstPlanPath, err)
+		}
 		return nil
 	})
+	if err != nil {
+		logrus.Errorf("failed to update the database after planning finished. Error: %q", err)
+	}
+	return err
 }
 
 func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths []string, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message string, port int, transformCh chan error, workspaceId, projectId string, projOutput types.ProjectOutput, debugMode bool) error {
@@ -1896,7 +2402,9 @@ func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths [
 		}
 		return nil
 	})
-	logrus.Error(err)
+	if err != nil {
+		logrus.Errorf("failed to update the database after transformation finished. Error: %q", err)
+	}
 	return err
 }
 
@@ -2034,7 +2542,40 @@ func putM2KIgnore(path string) error {
 	return nil
 }
 
+// CopyFile copies a file from src to dst.
+// The dst file will be truncated if it exists.
+// Returns an error if it failed to copy all the bytes.
+func CopyFile(dst, src string) error {
+	logrus.Tracef("CopyFile start. src %s dst %s", src, dst)
+	defer logrus.Trace("CopyFile end")
+	srcfile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open the source file at path %q Error: %q", src, err)
+	}
+	defer srcfile.Close()
+	srcfileinfo, err := srcfile.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to get size of the source file at path %q Error: %q", src, err)
+	}
+	srcfilesize := srcfileinfo.Size()
+	dstfile, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, DEFAULT_FILE_PERMISSIONS)
+	if err != nil {
+		return fmt.Errorf("failed to create the destination file at path %q Error: %q", dst, err)
+	}
+	defer dstfile.Close()
+	written, err := io.Copy(dstfile, srcfile)
+	if written != srcfilesize {
+		return fmt.Errorf("failed to copy all the bytes from source %q to destination %q. %d out of %d bytes written. Error: %v", src, dst, written, srcfilesize, err)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to copy from source %q to destination %q. Error: %q", src, dst, err)
+	}
+	return dstfile.Close()
+}
+
 func copyDir(src, dest string) error {
+	logrus.Tracef("copyDir start. src: %s dest: %s", src, dest)
+	defer logrus.Trace("copyDir end")
 	cmd := exec.Command("cp", "-r", src, dest)
 	return cmd.Run()
 }

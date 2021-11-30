@@ -105,6 +105,7 @@ func HandleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 	reqWorkspace.Id = uuid.NewString()
 	reqWorkspace.Timestamp = timestamp
+	reqWorkspace.Inputs = map[string]types.ProjectInput{}
 	reqWorkspace.ProjectIds = []string{}
 	if err := m2kFS.CreateWorkspace(reqWorkspace); err != nil {
 		logrus.Errorf("failed to create the workspace %+v . Error: %q", reqWorkspace, err)
@@ -204,33 +205,34 @@ func HandleUpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 	reqWorkspace.Id = workspaceId
 	oldWork, err := m2kFS.ReadWorkspace(workspaceId)
 	if err != nil {
-		if _, ok := err.(types.ErrorDoesNotExist); ok {
-			logrus.Infof("the workspace with id: %s does not exist. creating...", workspaceId)
-			timestamp, _, err := common.GetTimestamp()
-			if err != nil {
-				logrus.Errorf("failed to get the timestamp. Error: %q", err)
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-			reqWorkspace.Timestamp = timestamp
-			reqWorkspace.ProjectIds = []string{}
-			if err := m2kFS.CreateWorkspace(reqWorkspace); err != nil {
-				if _, ok := err.(types.ErrorValidation); ok {
-					sendErrorJSON(w, "the project given in the request body is invalid", http.StatusBadRequest)
-					return
-				}
-				logrus.Errorf("failed to create the workspace. Error: %q", err)
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-			w.WriteHeader(http.StatusCreated)
+		if _, ok := err.(types.ErrorDoesNotExist); !ok {
+			logrus.Errorf("failed to get the workspace with id: %s Error: %q", workspaceId, err)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		logrus.Errorf("failed to get the workspace with id: %s Error: %q", workspaceId, err)
-		w.WriteHeader(http.StatusInternalServerError)
+		logrus.Infof("the workspace with id: %s does not exist. creating...", workspaceId)
+		timestamp, _, err := common.GetTimestamp()
+		if err != nil {
+			logrus.Errorf("failed to get the timestamp. Error: %q", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		reqWorkspace.Timestamp = timestamp
+		reqWorkspace.ProjectIds = []string{}
+		if err := m2kFS.CreateWorkspace(reqWorkspace); err != nil {
+			if _, ok := err.(types.ErrorValidation); ok {
+				sendErrorJSON(w, "the project given in the request body is invalid", http.StatusBadRequest)
+				return
+			}
+			logrus.Errorf("failed to create the workspace. Error: %q", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
 		return
 	}
 	reqWorkspace.ProjectIds = oldWork.ProjectIds
+	reqWorkspace.Inputs = oldWork.Inputs
 	if err := m2kFS.UpdateWorkspace(reqWorkspace); err != nil {
 		logrus.Errorf("failed to update the workspace. Error: %q", err)
 		w.WriteHeader(http.StatusInternalServerError)

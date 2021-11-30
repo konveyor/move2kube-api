@@ -37,9 +37,9 @@ type IFileSystem interface {
 	ReadProject(workspaceId, projectId string) (types.Project, error)
 	UpdateProject(workspaceId string, project types.Project) error
 	DeleteProject(workspaceId, projectId string) error
-	CreateProjectInput(workspaceId, projectId string, projInput types.ProjectInput, file io.Reader) error
-	ReadProjectInput(workspaceId, projectId, projInputId string) (projInput types.ProjectInput, file io.Reader, err error)
-	DeleteProjectInput(workspaceId, projectId, projInputId string) error
+	CreateProjectInput(workspaceId, projectId string, projInput types.ProjectInput, file io.Reader, isCommon bool) error
+	ReadProjectInput(workspaceId, projectId, projInputId string, isCommon bool) (projInput types.ProjectInput, file io.Reader, err error)
+	DeleteProjectInput(workspaceId, projectId, projInputId string, isCommon bool) error
 	StartPlanning(workspaceId, projectId string, debugMode bool) error
 	ReadPlan(workspaceId, projectId string) (plan io.Reader, err error)
 	UpdatePlan(workspaceId, projectId string, plan io.Reader) error
