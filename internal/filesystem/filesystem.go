@@ -1304,6 +1304,7 @@ func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, d
 				}
 			}
 			if workInp.Type == types.ProjectInputCustomizations {
+				currentRunCustDir = filepath.Join(currentRunDir, CUSTOMIZATIONS_DIR)
 				inpPathSrc = filepath.Join(workInputsDir, CUSTOMIZATIONS_DIR, workInp.NormalizedName)
 				inpPathDst = filepath.Join(currentRunCustDir, workInp.NormalizedName)
 				if err := os.MkdirAll(currentRunCustDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
@@ -1764,6 +1765,7 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 				}
 			}
 			if workInp.Type == types.ProjectInputCustomizations {
+				currentRunCustDir = filepath.Join(currentRunDir, CUSTOMIZATIONS_DIR)
 				inpPathSrc = filepath.Join(workInputsDir, CUSTOMIZATIONS_DIR, workInp.NormalizedName)
 				inpPathDst = filepath.Join(currentRunCustDir, workInp.NormalizedName)
 				if err := os.MkdirAll(currentRunCustDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
