@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"path"
 
+	"github.com/Nerzal/gocloak/v10"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/konveyor/move2kube-api/internal/common"
@@ -41,7 +42,7 @@ func HandleListRoles(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
-	roleInfos, err := common.AuthServerClient.GetClientRoles(context.TODO(), accessToken, common.Config.AuthServerRealm, common.Config.M2kClientIdNotClientId)
+	roleInfos, err := common.AuthServerClient.GetClientRoles(context.TODO(), accessToken, common.Config.AuthServerRealm, common.Config.M2kClientIdNotClientId, gocloak.GetRoleParams{})
 	if err != nil {
 		logrus.Debug("Error:", err)
 		w.WriteHeader(http.StatusInternalServerError)
