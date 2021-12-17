@@ -28,7 +28,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Nerzal/gocloak/v8"
+	"github.com/Nerzal/gocloak/v10"
 	"github.com/go-jose/go-jose/v3"
 	"github.com/go-resty/resty/v2"
 	"github.com/konveyor/move2kube-api/internal/common"

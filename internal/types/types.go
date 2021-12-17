@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Nerzal/gocloak/v8"
+	"github.com/Nerzal/gocloak/v10"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
