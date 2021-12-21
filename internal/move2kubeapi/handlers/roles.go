@@ -42,25 +42,13 @@ func HandleListRoles(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
-	roleInfos, err := common.AuthServerClient.GetClientRoles(context.TODO(), accessToken, common.Config.AuthServerRealm, common.Config.M2kClientIdNotClientId, gocloak.GetRoleParams{})
+	brief := false
+	roleInfos, err := common.AuthServerClient.GetClientRoles(context.TODO(), accessToken, common.Config.AuthServerRealm, common.Config.M2kClientIdNotClientId, gocloak.GetRoleParams{BriefRepresentation: &brief})
 	if err != nil {
-		logrus.Debug("Error:", err)
-		w.WriteHeader(http.StatusInternalServerError)
+		logrus.Debugf("failed to get the roles for the client. Error: %q", err)
+		sendErrorJSON(w, "failed to get roles for the client. Please recheck the access token", http.StatusForbidden)
 		return
 	}
-	// workaround to get role attributes. See https://github.com/Nerzal/gocloak/issues/216
-	for _, roleInfo := range roleInfos {
-		tr, err := common.AuthServerClient.GetClientRole(context.TODO(), accessToken, common.Config.AuthServerRealm, common.Config.M2kClientIdNotClientId, *roleInfo.Name)
-		if err != nil {
-			logrus.Debug("Error:", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		if tr.Attributes != nil {
-			roleInfo.Attributes = tr.Attributes
-		}
-	}
-
 	m2kRoleInfos := []types.Role{}
 	for _, roleInfo := range roleInfos {
 		m2kRoleInfos = append(m2kRoleInfos, types.FromAuthServerRole(*roleInfo))
