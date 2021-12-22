@@ -37,7 +37,7 @@ GIT_TAG    = $(shell git tag --points-at | tail -n 1)
 GIT_DIRTY  = $(shell test -n "`git status --porcelain`" && echo "dirty" || echo "clean")
 HAS_UPX    = $(shell command -v upx >/dev/null && echo true || echo false)
 
-GOGET     := cd / && GO111MODULE=on go get -u 
+GOGET     := cd / && GO111MODULE=on go install 
 
 ifdef VERSION
 	BINARY_VERSION = $(VERSION)
@@ -128,14 +128,14 @@ test: ## Run tests
 	@printf "\033[32m-------------------------------------\n TESTS PASSED\n-------------------------------------\033[0m\n"
 
 ${GOTEST}:
-	${GOGET} github.com/rakyll/gotest
+	${GOGET} github.com/rakyll/gotest@v0.0.6
 
 .PHONY: test-verbose
 test-verbose: ${GOTEST}
 	gotest -run . $(PKG) -race -v
 
 ${GOLANGCOVER}:
-	${GOGET} github.com/mattn/goveralls@v0.0.6
+	${GOGET} github.com/mattn/goveralls@v0.0.11
 
 .PHONY: test-coverage
 test-coverage: ${GOLANGCOVER} ## Run tests with coverage
