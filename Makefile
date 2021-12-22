@@ -128,14 +128,14 @@ test: ## Run tests
 	@printf "\033[32m-------------------------------------\n TESTS PASSED\n-------------------------------------\033[0m\n"
 
 ${GOTEST}:
-	${GOGET} github.com/rakyll/gotest
+	${GOGET} github.com/rakyll/gotest@v0.0.6
 
 .PHONY: test-verbose
 test-verbose: ${GOTEST}
 	gotest -run . $(PKG) -race -v
 
 ${GOLANGCOVER}:
-	${GOGET} github.com/mattn/goveralls@v0.0.6
+	${GOGET} github.com/mattn/goveralls@v0.0.11
 
 .PHONY: test-coverage
 test-coverage: ${GOLANGCOVER} ## Run tests with coverage
