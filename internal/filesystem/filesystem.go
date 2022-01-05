@@ -2104,12 +2104,12 @@ func validateAndProcessPlan(plan string, shouldProcess bool) (string, error) {
 		return "", fmt.Errorf("'spec' is missing from the plan")
 	} else if pSpec, ok := pSpecI.(map[string]interface{}); !ok {
 		return "", fmt.Errorf("'spec' is not a map[string]interface{} . Actual value is %+v of type %T", pSpecI, pSpecI)
-	} else if pSpecRootDirI, ok := pSpec["rootDir"]; !ok {
-		return "", fmt.Errorf("'spec.rootDir' is missing from the plan")
-	} else if pSpecRootDir, ok := pSpecRootDirI.(string); !ok {
-		return "", fmt.Errorf("'spec.rootDir' is not a string. Actual value is %+v of type %T", pSpecRootDirI, pSpecRootDirI)
-	} else if pSpecRootDir != SOURCES_DIR {
-		return "", fmt.Errorf("'spec.rootDir' is invalid. Expected 'source' . Actual: %s", pSpecRootDir)
+	} else if pSpecSourceDirI, ok := pSpec["sourceDir"]; !ok {
+		return "", fmt.Errorf("'spec.sourceDir' is missing from the plan")
+	} else if pSpecSourceDir, ok := pSpecSourceDirI.(string); !ok {
+		return "", fmt.Errorf("'spec.sourceDir' is not a string. Actual value is %+v of type %T", pSpecSourceDirI, pSpecSourceDirI)
+	} else if pSpecSourceDir != SOURCES_DIR {
+		return "", fmt.Errorf("'spec.sourceDir' is invalid. Expected 'source' . Actual: %s", pSpecSourceDir)
 	} else {
 		// TODO: better processing of the plan
 		pMeta["name"], _ = common.NormalizeName(pMetaName)
