@@ -2129,6 +2129,9 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 	if verbose {
 		cmdArgs = append(cmdArgs, "--log-level", "trace")
 	}
+	if !common.Config.EnableLocalExecution {
+		cmdArgs = append(cmdArgs, "--disable-local-execution")
+	}
 	for _, p := range currentRunConfigPaths {
 		cmdArgs = append(cmdArgs, "--config", p)
 	}
@@ -2276,6 +2279,9 @@ func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths [
 	verbose := debugMode || isVerbose()
 	if verbose {
 		cmdArgs = append(cmdArgs, "--log-level", "trace")
+	}
+	if !common.Config.EnableLocalExecution {
+		cmdArgs = append(cmdArgs, "--disable-local-execution")
 	}
 	if currentRunCustDir != "" {
 		cmdArgs = append(cmdArgs, "--customizations", currentRunCustDir)
