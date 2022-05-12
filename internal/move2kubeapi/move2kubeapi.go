@@ -114,6 +114,9 @@ func Serve() error {
 	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/outputs/{output-id}", handlers.HandleReadProjectOutput).Methods("GET")
 	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/outputs/{output-id}", handlers.HandleDeleteProjectOutput).Methods("DELETE")
 
+	// project output graphs
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/outputs/{output-id}/graph", handlers.HandleReadProjectOutputGraph).Methods("GET")
+
 	// QA
 	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/outputs/{output-id}/problems/current", handlers.HandleGetQuestion).Methods("GET")
 	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}/outputs/{output-id}/problems/current/solution", handlers.HandlePostSolution).Methods("POST")

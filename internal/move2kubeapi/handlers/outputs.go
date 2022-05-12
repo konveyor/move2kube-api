@@ -136,6 +136,46 @@ func HandleReadProjectOutput(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// HandleReadProjectOutputGraph handles reading the graph file from the output of a transformation
+func HandleReadProjectOutputGraph(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
+	logrus.Trace("HandleReadProjectOutputGraph start")
+	defer logrus.Trace("HandleReadProjectOutputGraph end")
+	workspaceId := mux.Vars(r)[WORKSPACE_ID_ROUTE_VAR]
+	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
+	projOutputId := mux.Vars(r)[PROJECT_OUTPUT_ID_ROUTE_VAR]
+	if !common.IsValidId(workspaceId) || !common.IsValidId(projectId) || !common.IsValidId(projOutputId) {
+		logrus.Errorf("invalid id. Actual: %s %s %s", workspaceId, projectId, projOutputId)
+		sendErrorJSON(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	_, file, err := m2kFS.ReadProjectOutputGraph(workspaceId, projectId, projOutputId)
+	if err != nil {
+		logrus.Errorf("failed to get the project output. Error: %q", err)
+		if _, ok := err.(types.ErrorDoesNotExist); ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if e, ok := err.(types.ErrorValidation); ok {
+			sendErrorJSON(w, e.Reason, http.StatusBadRequest)
+			return
+		}
+		if _, ok := err.(types.ErrorOngoing); ok {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set(common.CONTENT_TYPE_HEADER, common.CONTENT_TYPE_JSON)
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.Copy(w, file); err != nil {
+		logrus.Errorf("failed to send the response. Error: %q", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+}
+
 // HandleDeleteProjectOutput handles deleting the output of a transformation
 func HandleDeleteProjectOutput(w http.ResponseWriter, r *http.Request) {
 	logrus := GetLogger(r)
