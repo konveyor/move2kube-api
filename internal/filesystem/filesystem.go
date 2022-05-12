@@ -1246,10 +1246,17 @@ func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, d
 	// effects
 	logrus.Debugf("just before starting effects before starting planning for project %s in workspace %s", projectId, workspaceId)
 	projInputsDir := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, INPUTS_DIR)
-	currentRunDir, err := ioutil.TempDir("", fmt.Sprintf("plan-%s-*", projectId))
+	currentRunDir, err := os.MkdirTemp("", fmt.Sprintf("plan-%s-*", projectId))
 	if err != nil {
-		return fmt.Errorf("failed to create a temporary directory to run plan in. Error: %q", err)
+		return fmt.Errorf("failed to create a temporary directory to start planning. Error: %q", err)
 	}
+
+	// resolve symbolic links before proceeding
+	currentRunDir, err = filepath.EvalSymlinks(currentRunDir)
+	if err != nil {
+		return fmt.Errorf("failed to resolve the temporary directory %s as a symbolic link. Error: %q", currentRunDir, err)
+	}
+
 	currentRunSrcDir := filepath.Join(currentRunDir, SOURCES_DIR)
 	if project.Status[types.ProjectStatusInputSources] {
 		currentRunSrcDirSrc := filepath.Join(projInputsDir, EXPANDED_DIR, SOURCES_DIR)
@@ -2435,9 +2442,11 @@ func cleanUpAfterTransform(currentRunDir string) error {
 func copyOverPlanConfigAndQACache(srcDir, destDir string) error {
 	planSrcPath := filepath.Join(srcDir, "m2k.plan")
 	configSrcPath := filepath.Join(srcDir, "m2kconfig.yaml")
+	graphSrcPath := filepath.Join(srcDir, "m2k-graph.json")
 	qaCacheSrcPath := filepath.Join(srcDir, "m2kqacache.yaml")
 	planDestPath := filepath.Join(destDir, "m2k.plan")
 	configDestPath := filepath.Join(destDir, "m2kconfig.yaml")
+	graphDestPath := filepath.Join(destDir, "m2k-graph.json")
 	qaCacheDestPath := filepath.Join(destDir, "m2kqacache.yaml")
 	planBytes, err := os.ReadFile(planSrcPath)
 	if err != nil {
@@ -2452,6 +2461,13 @@ func copyOverPlanConfigAndQACache(srcDir, destDir string) error {
 	}
 	if err := ioutil.WriteFile(configDestPath, configBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to write the config file to the path %s . Error: %q", configDestPath, err)
+	}
+	graphBytes, err := os.ReadFile(graphSrcPath)
+	if err != nil {
+		return fmt.Errorf("failed to read the m2k graph file at path %s . Error: %q", graphSrcPath, err)
+	}
+	if err := ioutil.WriteFile(graphDestPath, graphBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
+		return fmt.Errorf("failed to write the m2k graph file to the path %s . Error: %q", graphDestPath, err)
 	}
 	qaCacheBytes, err := os.ReadFile(qaCacheSrcPath)
 	if err != nil {
