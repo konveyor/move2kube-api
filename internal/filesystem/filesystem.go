@@ -1846,6 +1846,68 @@ func (fs *FileSystem) readProjectOutput(t *bolt.Tx, workspaceId, projectId, proj
 	return projOutput, f, nil
 }
 
+// ReadProjectOutputGraph returns the graph file from the target artifacts for an application
+func (fs *FileSystem) ReadProjectOutputGraph(workspaceId, projectId, projOutputId string) (projOutput types.ProjectOutput, file io.Reader, err error) {
+	db, err := fs.GetDatabase(true)
+	if err != nil {
+		return projOutput, file, err
+	}
+	defer db.Close()
+	err = db.View(func(t *bolt.Tx) error {
+		projOutput, file, err = fs.readProjectOutputGraph(t, workspaceId, projectId, projOutputId)
+		return err
+	})
+	return projOutput, file, err
+}
+
+func (fs *FileSystem) readProjectOutputGraph(t *bolt.Tx, workspaceId, projectId, projOutputId string) (projOutput types.ProjectOutput, file io.Reader, err error) {
+	project, err := fs.readProject(t, workspaceId, projectId)
+	if err != nil {
+		return types.ProjectOutput{}, nil, err
+	}
+	projOutput, ok := project.Outputs[projOutputId]
+	if !ok {
+		return projOutput, nil, types.ErrorDoesNotExist{Id: projOutputId}
+	}
+	if projOutput.Status == types.ProjectOutputStatusInProgress {
+		return projOutput, nil, types.ErrorOngoing{Id: projOutputId}
+	}
+	if projOutput.Status != types.ProjectOutputStatusDoneSuccess {
+		if projOutput.Status == types.ProjectOutputStatusDoneError {
+			return projOutput, nil, types.ErrorValidation{Reason: fmt.Sprintf("an error occurred during transformation of the output %s of project %s", projOutputId, projectId)}
+		}
+		return projOutput, nil, types.ErrorDoesNotExist{Id: projOutputId}
+	}
+	curDir := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, PROJECT_OUTPUTS_DIR, projOutputId, "output")
+	if err := fs.processGraph(curDir); err != nil {
+		return projOutput, nil, fmt.Errorf("failed to process the project output graph file inside the output directory %s . Error: %q", curDir, err)
+	}
+	projOutputPath := filepath.Join(curDir, "m2k-proc-graph.json")
+	f, err := os.Open(projOutputPath)
+	if err != nil {
+		return projOutput, nil, fmt.Errorf("failed to read the project output file at path %s . Error: %q", projOutputPath, err)
+	}
+	return projOutput, f, nil
+}
+
+func (fs *FileSystem) processGraph(currentRunDir string) error {
+	logrus.Infof("Starting graph at directory %s", currentRunDir)
+	cmdArgs := []string{"graph", "--output", "m2k-proc-graph.json"}
+	logrus.Infof("graph cmdArgs: %+v", cmdArgs)
+	ctx := context.Background()
+	if common.Config.PlanTimeoutSeconds > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(common.Config.PlanTimeoutSeconds)*time.Second)
+		defer cancel()
+	}
+	cmd := exec.CommandContext(ctx, common.APP_NAME, cmdArgs...)
+	cmd.Dir = currentRunDir
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to start the graph command. Error: %q", err)
+	}
+	return nil
+}
+
 // DeleteProjectOutput deletes the project output
 func (fs *FileSystem) DeleteProjectOutput(workspaceId, projectId, projOutputId string) error {
 	db, err := fs.GetDatabase(false)

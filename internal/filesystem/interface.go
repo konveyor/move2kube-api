@@ -47,6 +47,7 @@ type IFileSystem interface {
 	StartTransformation(workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode bool) error
 	ResumeTransformation(workspaceId, projectId, projOutputId string, debugMode bool) error
 	ReadProjectOutput(workspaceId, projectId, projOutputId string) (projOutput types.ProjectOutput, file io.Reader, err error)
+	ReadProjectOutputGraph(workspaceId, projectId, projOutputId string) (projOutput types.ProjectOutput, file io.Reader, err error)
 	DeleteProjectOutput(workspaceId, projectId, projOutputId string) error
 	GetQuestion(workspaceId, projectId, projOutputId string) (problem string, err error)
 	PostSolution(workspaceId, projectId, projOutputId, solution string) error
