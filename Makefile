@@ -39,6 +39,8 @@ HAS_UPX    = $(shell command -v upx >/dev/null && echo true || echo false)
 
 GOGET     := cd / && GO111MODULE=on go install 
 
+MULTI_ARCH_TARGET_PLATFORMS := linux/amd64,linux/arm64
+
 ifdef VERSION
 	BINARY_VERSION = $(VERSION)
 endif
@@ -236,3 +238,20 @@ ifdef DOCKER_CMD
 else
 	${CONTAINER_TOOL} run --rm -p 8080:8080 --network=bridge ${REGISTRYNS}/${BINNAME}:${VERSION}
 endif
+
+.PHONY: cmultibuildpush
+cmultibuildpush: ## Build and push multi arch container image
+ifndef DOCKER_CMD
+	$(error Docker wasn't detected. Please install docker and try again.)
+endif
+	@echo "Building image for multiple architectures with $(CONTAINER_TOOL)"
+
+	## TODO: When docker exporter supports exporting manifest lists we can separate out this into two steps: build and push
+
+	${CONTAINER_TOOL} buildx create --name m2k-builder-2 --driver-opt network=host --use --platform ${MULTI_ARCH_TARGET_PLATFORMS}
+
+	${CONTAINER_TOOL} buildx build --platform ${MULTI_ARCH_TARGET_PLATFORMS} --tag ${REGISTRYNS}/${BINNAME}-builder:${VERSION} --cache-from ${REGISTRYNS}/${BINNAME}-builder:latest --target builder --build-arg VERSION=${VERSION} --build-arg GO_VERSION=${GO_VERSION} --push .;
+	${CONTAINER_TOOL} buildx build --platform ${MULTI_ARCH_TARGET_PLATFORMS} --tag ${REGISTRYNS}/${BINNAME}:${VERSION} --cache-from ${REGISTRYNS}/${BINNAME}-builder:latest --cache-from ${REGISTRYNS}/${BINNAME}:latest --build-arg VERSION=${VERSION} --build-arg GO_VERSION=${GO_VERSION} --push .;
+
+	${CONTAINER_TOOL} buildx rm m2k-builder-2
+
