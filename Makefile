@@ -39,6 +39,8 @@ HAS_UPX    = $(shell command -v upx >/dev/null && echo true || echo false)
 
 GOGET     := cd / && GO111MODULE=on go install 
 
+export DOCKER_BUILDKIT := 1
+
 MULTI_ARCH_TARGET_PLATFORMS := linux/amd64,linux/arm64
 
 ifdef VERSION
