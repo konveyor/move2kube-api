@@ -141,7 +141,7 @@ jobs:
           docker pull quay.io/konveyor/move2kube-api-builder:latest || true
       - run: echo "${{ secrets.QUAY_BOT_PASSWORD }}" | docker login --username "${{ secrets.QUAY_BOT_USERNAME }}" --password-stdin quay.io
       - name: build container image
-        run: VERSION='${{ github.event.inputs.tag }}' GO_VERSION='${{ steps.info.outputs.go_version }}' make cbuild
+        run: export DOCKER_BUILDKIT=1 && VERSION='${{ github.event.inputs.tag }}' GO_VERSION='${{ steps.info.outputs.go_version }}' make cbuild
       - name: push image to quay
         run: VERSION='${{ github.event.inputs.tag }}' make cpush
       - name: success slack notification
