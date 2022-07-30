@@ -56,6 +56,7 @@ type ConfigT struct {
 	M2kServerClientId            string   `mapstructure:"m2k-server-client-id"`
 	M2kServerClientSecret        string   `mapstructure:"m2k-server-client-secret"`
 	DefaultResourceId            string   `mapstructure:"default-resource-id"`
+	Host                         string   `mapstructure:"host"`
 	CloudEventsEndpoint          string   `mapstructure:"cloud-events-endpoint"`
 	CloudEventsAccessToken       string   `mapstructure:"cloud-events-access-token"`
 	CloudEventsSpecVersion       string   `mapstructure:"cloud-events-spec-version"`

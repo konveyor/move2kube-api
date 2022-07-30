@@ -1223,10 +1223,7 @@ func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, d
 	}
 	message := "Project: " + project.Id + ";"
 	// This contains the metadata about a run (host and port of the plan progress server, etc.)
-	planProgressServerMeta := types.QAServerMetadata{Host: getDNSHostName(), Debug: debugMode}
-	if planProgressServerMeta.Host == "" {
-		planProgressServerMeta.Host = "localhost"
-	}
+	planProgressServerMeta := types.QAServerMetadata{Host: common.Config.Host, Debug: debugMode}
 	planProgressServerMeta.Port, err = freeport.GetFreePort()
 	if err != nil {
 		return fmt.Errorf("failed to get a free port. Error: %q", err)
@@ -1554,10 +1551,7 @@ func (fs *FileSystem) resumeTransformation(t *bolt.Tx, workspaceId, projectId, p
 	}
 	// update state
 	// resume the transformation
-	qaServerMeta.Host = getDNSHostName()
-	if qaServerMeta.Host == "" {
-		qaServerMeta.Host = "localhost"
-	}
+	qaServerMeta.Host = common.Config.Host
 	qaServerMeta.Port, err = freeport.GetFreePort()
 	if err != nil {
 		return fmt.Errorf("failed to get a free port. Error: %q", err)
@@ -1686,10 +1680,7 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 		return fmt.Errorf("failed to update the project with id %s . Error: %q", projectId, err)
 	}
 	// This file contains the metadata about a run (host and port of the QA engine's http server, etc.)
-	qaServerMeta := types.QAServerMetadata{Host: getDNSHostName(), Debug: debugMode}
-	if qaServerMeta.Host == "" {
-		qaServerMeta.Host = "localhost"
-	}
+	qaServerMeta := types.QAServerMetadata{Host: common.Config.Host, Debug: debugMode}
 	qaServerMeta.Port, err = freeport.GetFreePort()
 	if err != nil {
 		return fmt.Errorf("failed to get a free port. Error: %q", err)
@@ -2539,46 +2530,6 @@ func copyOverPlanConfigAndQACache(srcDir, destDir string) error {
 		return fmt.Errorf("failed to write the qa cache file to the path %s . Error: %q", qaCacheDestPath, err)
 	}
 	return nil
-}
-
-func getDNSHostName() string {
-	logrus.Trace("getDNSHostName start")
-	dnsHostName := ""
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		logrus.Errorf("failed to get the interfaces. Error: %q", err)
-		return ""
-	}
-	for _, iface := range ifaces {
-		addrs, err := iface.Addrs()
-		if err != nil {
-			logrus.Errorf("failed to get the addresses for the interface %s . Error: %q", iface.Name, err)
-			continue
-		}
-		for _, addr := range addrs {
-			var ip net.IP
-			switch v := addr.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
-			}
-			ptr, err := net.LookupAddr(ip.String())
-			if err != nil {
-				logrus.Errorf("failed to do a reverse lookup for the address %s . Error: %q", addr.String(), err)
-				continue
-			}
-			for _, ptrvalue := range ptr {
-				logrus.Debugf("host: %s", ptrvalue)
-				if len(dnsHostName) <= len(ptrvalue) {
-					dnsHostName = ptrvalue
-				}
-			}
-		}
-	}
-	logrus.Debugf("dnsHostName: '%s'", dnsHostName)
-	logrus.Trace("getDNSHostName end")
-	return dnsHostName
 }
 
 // generateVerboseLogs synchronizes move2kube-api loggging level wrt move2kube logging level

@@ -75,6 +75,7 @@ For more information, visit https://move2kube.konveyor.io/`,
 	rootCmd.Flags().String(app+"-server-client-id", app+"-server", "The OAuth 2.0 client id for the server side.")
 	rootCmd.Flags().String(app+"-server-client-secret", "8a1340ff-de5d-42a0-8b40-b6239c7cfc58", "The OAuth 2.0 client secret for the server side.")
 	rootCmd.Flags().String("default-resource-id", "b4d9b0fd-ffdb-4533-9536-5c315af07352", "Resource id on the Keycloak server.")
+	rootCmd.Flags().String("host", "localhost", "The host name of the server.")
 	// CloudEvents
 	rootCmd.Flags().Bool("cloud-events-enabled", false, "Enable CloudEvents reporting.")
 	rootCmd.Flags().String("cloud-events-endpoint", "", "Endpoint where CloudEvents are reported.")
