@@ -1599,7 +1599,8 @@ func (fs *FileSystem) resumeTransformation(t *bolt.Tx, workspaceId, projectId, p
 		}
 		currentRunConfigPaths = append(commonConfigPaths, currentRunConfigPaths...)
 	}
-	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode)
+	// resume the transformation
+	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode, true)
 	return nil
 }
 
@@ -1788,7 +1789,7 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 		currentRunConfigPaths = append(commonConfigPaths, currentRunConfigPaths...)
 	}
 	// start the transformation
-	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode)
+	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode, false)
 	logrus.Infof("Waiting for QA engine to start for the output %s of the project %s", projOutput.Id, projectId)
 	if err := <-transformCh; err != nil {
 		return fmt.Errorf("failed to start the transformation and qa engine. Error: %q", err)
@@ -2329,13 +2330,16 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 	return err
 }
 
-func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths []string, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message string, port int, transformCh chan error, workspaceId, projectId string, projOutput types.ProjectOutput, debugMode bool) error {
+func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths []string, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message string, port int, transformCh chan error, workspaceId, projectId string, projOutput types.ProjectOutput, debugMode bool, overwriteOutDir bool) error {
 	logrus.Infof("Starting transformation in %s with configs from %+v and source from %s , customizations from %s and output to %s", currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir)
 	portStr, err := cast.ToStringE(port)
 	if err != nil {
 		return fmt.Errorf("failed to convert the port '%d' to a string. Error: %q", port, err)
 	}
 	cmdArgs := []string{"transform", "--qa-disable-cli", "--qa-port", portStr, "--source", currentRunSrcDir, "--output", currentRunOutDir, "--log-file", M2K_CLI_LOG_FILE}
+	if overwriteOutDir {
+		cmdArgs = append(cmdArgs, "--overwrite")
+	}
 	verbose := debugMode || isVerbose()
 	if verbose {
 		cmdArgs = append(cmdArgs, "--log-level", "trace")
