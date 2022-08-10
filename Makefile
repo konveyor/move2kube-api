@@ -15,7 +15,7 @@
 BINNAME     ?= move2kube-api
 BINDIR      := $(CURDIR)/bin
 DISTDIR		:= $(CURDIR)/_dist
-TARGETS     := darwin/amd64 linux/amd64
+TARGETS     := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
 REGISTRYNS  := quay.io/konveyor
 SWAGGER_UI_VERSION := 3.52.3
 
@@ -85,7 +85,7 @@ build: get $(BINDIR)/$(BINNAME) ## Build go code
 	@printf "\033[32m-------------------------------------\n BUILD SUCCESS\n-------------------------------------\033[0m\n"
 
 $(BINDIR)/$(BINNAME): $(SRC) assets/swagger
-	go build -ldflags '$(LDFLAGS)' -o $(BINDIR)/$(BINNAME) ./cmd/move2kubeapi
+	go build -ldflags '$(LDFLAGS)' -o $(BINDIR)/$(BINNAME) ./cmd/main
 ifeq ($(HAS_UPX),true)
 	@echo 'upx detected. compressing binary...'
 	upx $(BINDIR)/$(BINNAME)
@@ -164,27 +164,13 @@ $(GOX):
 
 .PHONY: build-cross
 build-cross: $(GOX) clean
-	CGO_ENABLED=0 $(GOX) -parallel=3 -output="$(DISTDIR)/{{.OS}}-{{.Arch}}/$(BINNAME)" -osarch='$(TARGETS)' -ldflags '$(LDFLAGS)' ./cmd/move2kubeapi
+	CGO_ENABLED=0 $(GOX) -parallel=3 -output="$(DISTDIR)/{{.OS}}-{{.Arch}}/$(BINNAME)" -osarch='$(TARGETS)' -ldflags '$(LDFLAGS)' ./cmd/main
 
 .PHONY: dist
 dist: clean build-cross ## Build Distribution
-ifeq ($(HAS_UPX),true)
-	@echo 'upx detected. compressing binary...'
-	upx $(shell find . -type f -name '$(BINNAME)')
-else
-	@echo 'In order to compress the produced binaries please install upx:'
-	@echo 'MacOS: brew install upx'
-	@echo 'Linux: sudo apt-get install upx'
-endif
 	mkdir -p $(DISTDIR)/files
 	cp -r ./LICENSE $(DISTDIR)/files/
-	cd $(DISTDIR) && \
-	 find * -maxdepth 1 -name "*-*" -type d \
-	  -exec cp -r $(DISTDIR)/files/* {} \; \
-	  -exec tar -zcf ${BINNAME}-${VERSION}-{}.tar.gz {} \; \
-	  -exec sh -c 'shasum -a 256 ${BINNAME}-${VERSION}-{}.tar.gz > ${BINNAME}-${VERSION}-{}.tar.gz.sha256sum' \; \
-	  -exec zip -r ${BINNAME}-${VERSION}-{}.zip {} \; \
-	  -exec sh -c 'shasum -a 256 ${BINNAME}-${VERSION}-{}.zip > ${BINNAME}-${VERSION}-{}.zip.sha256sum' \;
+	cd $(DISTDIR) && go run ../scripts/dist/builddist.go -b $(BINNAME) -v $(VERSION)
 
 .PHONY: clean
 clean:

@@ -30,7 +30,6 @@ jobs:
         with:
           go-version: ${{ steps.info.outputs.go_version }}
       - name: install upx to compress binaries
-        run: sudo apt-get install -y upx
       - run: make ci
       - run: make test-coverage
       - name: upload coverage
@@ -116,6 +115,20 @@ jobs:
           tag: ${{ github.event.inputs.tag }}
           prev_tag: ${{ github.event.inputs.prev_tag }}
           config: releasenotes-config.js
+      - id: info
+        uses: konveyor/get-env-info@v1
+      - uses: actions/setup-go@v2
+        with:
+          go-version: ${{ steps.info.outputs.go_version }}
+      - run: VERSION='${{ github.event.inputs.tag }}' make dist
+      - name: upload release assets
+        uses: konveyor/upload-release-action@v3
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.event.inputs.tag }}
+          file: _dist/output/*
+          file_glob: true
+          overwrite: true
       - name: slack notification
         uses: rtCamp/action-slack-notify@v2
         env:
