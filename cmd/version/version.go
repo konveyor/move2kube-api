@@ -69,6 +69,7 @@ func GetVersionInfo() VersionInfo {
 		GitCommit:    gitCommit,
 		GitTreeState: gitTreeState,
 		GoVersion:    runtime.Version(),
+		Platform:     runtime.GOOS + "/" + runtime.GOARCH,
 	}
 }
 
@@ -82,4 +83,6 @@ type VersionInfo struct {
 	GitTreeState string `yaml:"gitTreeState,omitempty"`
 	// GoVersion is the version of the Go compiler used.
 	GoVersion string `yaml:"goVersion,omitempty"`
+	// Platform gives the OS and ISA the app is running on
+	Platform string `yaml:"platform,omitempty"`
 }
