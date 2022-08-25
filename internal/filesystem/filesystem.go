@@ -221,20 +221,26 @@ func (*FileSystem) GetSupportInfo() map[string]string {
 		GitCommit    string `yaml:"gitCommit"`
 		GitTreeState string `yaml:"gitTreeState"`
 	}{}
+	found := false
 	if val, ok := os.LookupEnv("MOVE2KUBE_UI_VERSION"); ok {
 		uiVersion.Version = val
+		found = true
 	}
 	if val, ok := os.LookupEnv("MOVE2KUBE_UI_GIT_COMMIT_HASH"); ok {
 		uiVersion.GitCommit = val
+		found = true
 	}
 	if val, ok := os.LookupEnv("MOVE2KUBE_UI_GIT_TREE_STATUS"); ok {
 		uiVersion.GitTreeState = val
+		found = true
 	}
 	info["ui_version"] = "unknown"
-	if uiVersionBytes, err := yaml.Marshal(uiVersion); err != nil {
-		logrus.Errorf("failed to marshal the support info for the UI %+v to yaml. Error: %q", uiVersion, err)
-	} else {
-		info["ui_version"] = string(uiVersionBytes)
+	if found {
+		if uiVersionBytes, err := yaml.Marshal(uiVersion); err != nil {
+			logrus.Errorf("failed to marshal the support info for the UI %+v to yaml. Error: %q", uiVersion, err)
+		} else {
+			info["ui_version"] = string(uiVersionBytes)
+		}
 	}
 	info["docker"] = "docker socket is mounted"
 	if _, err := os.Stat("/var/run/docker.sock"); err != nil {
