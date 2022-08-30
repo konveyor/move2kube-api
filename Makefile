@@ -163,7 +163,7 @@ $(GOX):
 	${GOGET} github.com/mitchellh/gox@v1.0.1
 
 .PHONY: build-cross
-build-cross: $(GOX) clean
+build-cross: $(GOX) clean $(SRC) assets/swagger
 	CGO_ENABLED=0 $(GOX) -parallel=3 -output="$(DISTDIR)/{{.OS}}-{{.Arch}}/$(BINNAME)" -osarch='$(TARGETS)' -ldflags '$(LDFLAGS)' ./cmd/main
 
 .PHONY: dist
