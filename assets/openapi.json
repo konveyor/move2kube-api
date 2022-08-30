@@ -464,7 +464,7 @@
         ],
         "summary": "Get the input of the project with the given ID.",
         "description": "Get the input of the project with the given ID.",
-        "operationId": "get-project-input",
+        "operationId": "get-workspace-input",
         "parameters": [
           {
             "name": "workspace-id",
@@ -516,7 +516,7 @@
         ],
         "summary": "Delete the input of the project.",
         "description": "Delete the input of the project.",
-        "operationId": "delete-project-input",
+        "operationId": "delete-workspace-input",
         "parameters": [
           {
             "name": "workspace-id",
@@ -1206,7 +1206,7 @@
           }
         ],
         "requestBody": {
-          "required": "true",
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -1511,7 +1511,7 @@
         ],
         "summary": "Get the graph of the transformers used while creating the output with the given ID.",
         "description": "Get the graph of the transformers used while creating the output with the given ID.",
-        "operationId": "get-project-output",
+        "operationId": "get-project-output-graph",
         "parameters": [
           {
             "name": "workspace-id",
@@ -1570,7 +1570,7 @@
         }
       }
     },
-    "/workspaces/{work-id}/projects/{proj-id}/outputs/{output-id}/problems/current": {
+    "/workspaces/{workspace-id}/projects/{project-id}/outputs/{output-id}/problems/current": {
       "get": {
         "tags": [
           "qa"
@@ -1642,7 +1642,7 @@
         }
       }
     },
-    "/workspaces/{work-id}/projects/{proj-id}/outputs/{output-id}/problems/current/solution": {
+    "/workspaces/{workspace-id}/projects/{project-id}/outputs/{output-id}/problems/current/solution": {
       "post": {
         "tags": [
           "qa"
