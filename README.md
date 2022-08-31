@@ -9,6 +9,12 @@
 
 Move2Kube API provides a REST interface to interact with move2kube [command line tool](https://github.com/konveyor/move2kube).
 
+The API is documented here: https://github.com/konveyor/move2kube-api/blob/main/assets/openapi.json  
+(Use https://editor.swagger.io/ to view it.)
+
+![API inputs](./assets/images/api-1.png)
+![API outputs](./assets/images/api-2.png)
+
 ## Usage
 
 Run using container from registry using `make crun`
