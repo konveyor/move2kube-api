@@ -1198,29 +1198,7 @@ func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, d
 	if project.Status[types.ProjectStatusPlanning] {
 		return types.ErrorOngoing{Id: projectId}
 	}
-	if !project.Status[types.ProjectStatusInputSources] {
-		if !project.Status[types.ProjectStatusInputReference] {
-			return types.ErrorValidation{Reason: "the project has no source folders as input"}
-		}
-		work, err := fs.readWorkspace(t, workspaceId)
-		if err != nil {
-			return err
-		}
-		found := false
-		for _, inp := range project.Inputs {
-			if inp.Type != types.ProjectInputReference {
-				continue
-			}
-			actualInp := work.Inputs[inp.Id]
-			if actualInp.Type == types.ProjectInputSources {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return types.ErrorValidation{Reason: "the project has no source folders as input"}
-		}
-	}
+
 	// update state
 	logrus.Debugf("just before updating state before starting planning for project %s in workspace %s", projectId, workspaceId)
 	project.Status[types.ProjectStatusPlanning] = true
@@ -1259,9 +1237,10 @@ func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, d
 	if err != nil {
 		return fmt.Errorf("failed to resolve the temporary directory %s as a symbolic link. Error: %q", currentRunDir, err)
 	}
-
-	currentRunSrcDir := filepath.Join(currentRunDir, SOURCES_DIR)
+	// default is empty string, if the input source is given, value is updated.
+	currentRunSrcDir := ""
 	if project.Status[types.ProjectStatusInputSources] {
+		currentRunSrcDir = filepath.Join(currentRunDir, SOURCES_DIR)
 		currentRunSrcDirSrc := filepath.Join(projInputsDir, EXPANDED_DIR, SOURCES_DIR)
 		if err := copyDir(currentRunSrcDirSrc, currentRunSrcDir); err != nil {
 			return fmt.Errorf("failed to copy the sources directory from %s to %s for the current run. Error: %q", currentRunSrcDirSrc, currentRunSrcDir, err)
@@ -1631,29 +1610,7 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 	if _, ok := project.Outputs[projOutput.Id]; ok {
 		return types.ErrorIdAlreadyInUse{Id: projOutput.Id}
 	}
-	if !project.Status[types.ProjectStatusInputSources] {
-		if !project.Status[types.ProjectStatusInputReference] {
-			return types.ErrorValidation{Reason: "the project has no source folders as input"}
-		}
-		work, err := fs.readWorkspace(t, workspaceId)
-		if err != nil {
-			return err
-		}
-		found := false
-		for _, inp := range project.Inputs {
-			if inp.Type != types.ProjectInputReference {
-				continue
-			}
-			actualInp := work.Inputs[inp.Id]
-			if actualInp.Type == types.ProjectInputSources {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return types.ErrorValidation{Reason: "the project has no source folders as input"}
-		}
-	}
+
 	if !project.Status[types.ProjectStatusPlan] {
 		return types.ErrorValidation{Reason: "the project has no plan"}
 	}
@@ -1713,9 +1670,11 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 	if err := ioutil.WriteFile(planPath, []byte(planStr), DEFAULT_FILE_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to write the plan to a file at path %s . Error: %q", planPath, err)
 	}
+	// default is empty string, if the input source is given, the value is updated
+	currentRunSrcDir := ""
 	// copy the source and customizations directories into the run directory
-	currentRunSrcDir := filepath.Join(currentRunDir, SOURCES_DIR)
 	if project.Status[types.ProjectStatusInputSources] {
+		currentRunSrcDir = filepath.Join(currentRunDir, SOURCES_DIR)
 		srcPath := filepath.Join(projInputsDir, EXPANDED_DIR, SOURCES_DIR)
 		if err := copyDir(srcPath, currentRunSrcDir); err != nil {
 			return fmt.Errorf("failed to copy the sources directory from %s to %s for the current run. Error: %q", srcPath, currentRunSrcDir, err)
@@ -2175,7 +2134,7 @@ func validateAndProcessPlan(plan string, shouldProcess bool) (string, error) {
 		return "", fmt.Errorf("'spec.sourceDir' is missing from the plan")
 	} else if pSpecSourceDir, ok := pSpecSourceDirI.(string); !ok {
 		return "", fmt.Errorf("'spec.sourceDir' is not a string. Actual value is %+v of type %T", pSpecSourceDirI, pSpecSourceDirI)
-	} else if pSpecSourceDir != SOURCES_DIR {
+	} else if pSpecSourceDir != SOURCES_DIR && pSpecSourceDir != "" {
 		return "", fmt.Errorf("'spec.sourceDir' is invalid. Expected 'source' . Actual: %s", pSpecSourceDir)
 	} else {
 		// TODO: better processing of the plan
@@ -2191,8 +2150,11 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 	if err != nil {
 		return types.ErrorValidation{Reason: fmt.Sprintf("failed to normalize the project name %s . Error: %q", projectName, err)}
 	}
-	cmdArgs := []string{"plan", "--name", normName, "--source", currentRunSrcDir, "--plan-progress-port", cast.ToString(port), "--log-file", M2K_CLI_LOG_FILE}
+	cmdArgs := []string{"plan", "--name", normName, "--plan-progress-port", cast.ToString(port), "--log-file", M2K_CLI_LOG_FILE}
 	verbose := debugMode || isVerbose()
+	if currentRunSrcDir != "" {
+		cmdArgs = append(cmdArgs, "--source", currentRunSrcDir)
+	}
 	if verbose {
 		cmdArgs = append(cmdArgs, "--log-level", "trace")
 	}
@@ -2342,7 +2304,10 @@ func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths [
 	if err != nil {
 		return fmt.Errorf("failed to convert the port '%d' to a string. Error: %q", port, err)
 	}
-	cmdArgs := []string{"transform", "--qa-disable-cli", "--qa-port", portStr, "--source", currentRunSrcDir, "--output", currentRunOutDir, "--log-file", M2K_CLI_LOG_FILE}
+	cmdArgs := []string{"transform", "--qa-disable-cli", "--qa-port", portStr, "--output", currentRunOutDir, "--log-file", M2K_CLI_LOG_FILE}
+	if currentRunSrcDir != "" {
+		cmdArgs = append(cmdArgs, "--source", currentRunSrcDir)
+	}
 	if overwriteOutDir {
 		cmdArgs = append(cmdArgs, "--overwrite")
 	}
