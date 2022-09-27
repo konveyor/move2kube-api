@@ -1199,6 +1199,30 @@ func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, d
 		return types.ErrorOngoing{Id: projectId}
 	}
 
+	if !project.Status[types.ProjectStatusInputSources] && !project.Status[types.ProjectStatusInputCustomizations] {
+		if !project.Status[types.ProjectStatusInputReference] {
+			return types.ErrorValidation{Reason: "the project has no source folders or customization folders as input"}
+		}
+		work, err := fs.readWorkspace(t, workspaceId)
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, inp := range project.Inputs {
+			if inp.Type != types.ProjectInputReference {
+				continue
+			}
+			actualInp := work.Inputs[inp.Id]
+			if actualInp.Type == types.ProjectInputSources || actualInp.Type == types.ProjectInputCustomizations {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return types.ErrorValidation{Reason: "the project has no source folders as input"}
+		}
+	}
+
 	// update state
 	logrus.Debugf("just before updating state before starting planning for project %s in workspace %s", projectId, workspaceId)
 	project.Status[types.ProjectStatusPlanning] = true
@@ -1610,7 +1634,29 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 	if _, ok := project.Outputs[projOutput.Id]; ok {
 		return types.ErrorIdAlreadyInUse{Id: projOutput.Id}
 	}
-
+	if !project.Status[types.ProjectStatusInputSources] && !project.Status[types.ProjectStatusInputCustomizations] {
+		if !project.Status[types.ProjectStatusInputReference] {
+			return types.ErrorValidation{Reason: "the project has no source or customization folders as input"}
+		}
+		work, err := fs.readWorkspace(t, workspaceId)
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, inp := range project.Inputs {
+			if inp.Type != types.ProjectInputReference {
+				continue
+			}
+			actualInp := work.Inputs[inp.Id]
+			if actualInp.Type == types.ProjectInputSources || actualInp.Type == types.ProjectInputCustomizations {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return types.ErrorValidation{Reason: "the project has no source or customization folders as input"}
+		}
+	}
 	if !project.Status[types.ProjectStatusPlan] {
 		return types.ErrorValidation{Reason: "the project has no plan"}
 	}
