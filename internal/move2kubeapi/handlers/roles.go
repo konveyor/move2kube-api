@@ -19,7 +19,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"path"
 
@@ -81,7 +81,7 @@ func HandleCreateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
-	bodyBytes, err := ioutil.ReadAll(r.Body)
+	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		logrus.Debugf("failed to read the request body. Error: %q", err)
 		sendErrorJSON(w, "the request body is missing or incomplete", http.StatusBadRequest)
@@ -176,7 +176,7 @@ func HandleUpdateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
-	bodyBytes, err := ioutil.ReadAll(r.Body)
+	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		logrus.Debugf("failed to read the request body. Error: %q", err)
 		sendErrorJSON(w, "the request body is missing or incomplete", http.StatusBadRequest)
