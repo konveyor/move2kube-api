@@ -19,7 +19,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -98,7 +98,7 @@ func HandleReadPlan(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	planBytes, err := ioutil.ReadAll(plan)
+	planBytes, err := io.ReadAll(plan)
 	if err != nil {
 		logrus.Errorf("failed to read the plan file. Error: %q", err)
 		w.WriteHeader(http.StatusInternalServerError)

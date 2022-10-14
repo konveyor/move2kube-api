@@ -23,7 +23,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -1451,7 +1450,7 @@ func (fs *FileSystem) updatePlan(t *bolt.Tx, workspaceId, projectId string, plan
 	if project.Status[types.ProjectStatusPlanning] {
 		return types.ErrorOngoing{Id: projectId}
 	}
-	planBytes, err := ioutil.ReadAll(plan)
+	planBytes, err := io.ReadAll(plan)
 	if err != nil {
 		return fmt.Errorf("failed to read the plan. Error: %q", err)
 	}
@@ -1467,7 +1466,7 @@ func (fs *FileSystem) updatePlan(t *bolt.Tx, workspaceId, projectId string, plan
 	}
 	// effects
 	planFilePath := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, INPUTS_DIR, EXPANDED_DIR, M2K_PLAN_FILENAME)
-	if err := ioutil.WriteFile(planFilePath, planBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
+	if err := os.WriteFile(planFilePath, planBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to write to the plan file at path %s . Error: %q", planFilePath, err)
 	}
 	return nil
@@ -1664,7 +1663,7 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 	var planBytes []byte
 	if plan == nil {
 		srcPlanPath := filepath.Join(projInputsDir, EXPANDED_DIR, M2K_PLAN_FILENAME)
-		planBytes, err = ioutil.ReadFile(srcPlanPath)
+		planBytes, err = os.ReadFile(srcPlanPath)
 		if err != nil {
 			err := fmt.Errorf("failed to read the plan file at path %s . Error: %q", srcPlanPath, err)
 			logrus.Error(err)
@@ -1674,7 +1673,7 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 			return err
 		}
 	} else {
-		planBytes, err = ioutil.ReadAll(plan)
+		planBytes, err = io.ReadAll(plan)
 		if err != nil {
 			return fmt.Errorf("failed to read the plan. Error: %q", err)
 		}
@@ -1713,7 +1712,7 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 		return fmt.Errorf("failed to make the project output directory at path %s . Error: %q", currentRunDir, err)
 	}
 	planPath := filepath.Join(currentRunDir, M2K_PLAN_FILENAME)
-	if err := ioutil.WriteFile(planPath, []byte(planStr), DEFAULT_FILE_PERMISSIONS); err != nil {
+	if err := os.WriteFile(planPath, []byte(planStr), DEFAULT_FILE_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to write the plan to a file at path %s . Error: %q", planPath, err)
 	}
 	// default is empty string, if the input source is given, the value is updated
@@ -2007,7 +2006,7 @@ func (fs *FileSystem) getQuestion(t *bolt.Tx, workspaceId, projectId, projOutput
 		return "", fmt.Errorf("got an error response status code. Status: %s", resp.Status)
 	}
 	defer resp.Body.Close()
-	respBodyBytes, err := ioutil.ReadAll(resp.Body)
+	respBodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read the response body. Error: %q", err)
 	}
@@ -2068,12 +2067,16 @@ func (fs *FileSystem) postSolution(t *bolt.Tx, workspaceId, projectId, projOutpu
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		if resp.StatusCode == 406 {
-			return types.ErrorValidation{Reason: "not a valid answer to the question"}
+			respBodyBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return types.ErrorValidation{Reason: "not a valid answer to the question"}
+			}
+			return types.ErrorValidation{Reason: string(respBodyBytes)}
 		}
 		return fmt.Errorf("got an error response status code. Status: %s", resp.Status)
 	}
 	defer resp.Body.Close()
-	respBodyBytes, err := ioutil.ReadAll(resp.Body)
+	respBodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read the response body. Error: %q", err)
 	}
@@ -2526,28 +2529,28 @@ func copyOverPlanConfigAndQACache(srcDir, destDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read the plan file at path %s . Error: %q", planSrcPath, err)
 	}
-	if err := ioutil.WriteFile(planDestPath, planBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
+	if err := os.WriteFile(planDestPath, planBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to write the plan file to the path %s . Error: %q", planDestPath, err)
 	}
 	configBytes, err := os.ReadFile(configSrcPath)
 	if err != nil {
 		return fmt.Errorf("failed to read the config file at path %s . Error: %q", configSrcPath, err)
 	}
-	if err := ioutil.WriteFile(configDestPath, configBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
+	if err := os.WriteFile(configDestPath, configBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to write the config file to the path %s . Error: %q", configDestPath, err)
 	}
 	graphBytes, err := os.ReadFile(graphSrcPath)
 	if err != nil {
 		return fmt.Errorf("failed to read the m2k graph file at path %s . Error: %q", graphSrcPath, err)
 	}
-	if err := ioutil.WriteFile(graphDestPath, graphBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
+	if err := os.WriteFile(graphDestPath, graphBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to write the m2k graph file to the path %s . Error: %q", graphDestPath, err)
 	}
 	qaCacheBytes, err := os.ReadFile(qaCacheSrcPath)
 	if err != nil {
 		return fmt.Errorf("failed to read the qa cache file at path %s . Error: %q", qaCacheSrcPath, err)
 	}
-	if err := ioutil.WriteFile(qaCacheDestPath, qaCacheBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
+	if err := os.WriteFile(qaCacheDestPath, qaCacheBytes, DEFAULT_FILE_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to write the qa cache file to the path %s . Error: %q", qaCacheDestPath, err)
 	}
 	return nil
@@ -2565,7 +2568,7 @@ func generateVerboseLogs(message string) {
 	syncLoggingLevel(loggingLevel, message)
 }
 
-//syncLoggingLevel matches log levels of Move2Kube-api and Move2Kube
+// syncLoggingLevel matches log levels of Move2Kube-api and Move2Kube
 func syncLoggingLevel(loggingLevel, message string) {
 	switch {
 	case loggingLevel == "trace":
@@ -2594,7 +2597,7 @@ func putM2KIgnore(path string) error {
 		return fmt.Errorf("failed to create a directory at the path %s . Error: %q", path, err)
 	}
 	m2kIgnorePath := filepath.Join(path, ".m2kignore")
-	if err := ioutil.WriteFile(m2kIgnorePath, []byte("."), DEFAULT_FILE_PERMISSIONS); err != nil {
+	if err := os.WriteFile(m2kIgnorePath, []byte("."), DEFAULT_FILE_PERMISSIONS); err != nil {
 		return fmt.Errorf("failed to write a .m2kingore file to the path %s . Error: %q", m2kIgnorePath, err)
 	}
 	return nil

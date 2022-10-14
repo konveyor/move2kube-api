@@ -88,8 +88,8 @@ func HandlePostSolution(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		if _, ok := err.(types.ErrorValidation); ok {
-			sendErrorJSON(w, "the solution is invalid", http.StatusBadRequest)
+		if e, ok := err.(types.ErrorValidation); ok {
+			sendErrorJSON(w, e.Reason, http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
