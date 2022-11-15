@@ -56,17 +56,17 @@ func Setup() error {
 	defer logrus.Trace("Setup end")
 	absDataDir, err := filepath.Abs(common.Config.DataDir)
 	if err != nil {
-		return fmt.Errorf("failed to make the data directory path %s absolute. Error: %q", common.Config.DataDir, err)
+		return fmt.Errorf("failed to make the data directory path %s absolute. Error: %w", common.Config.DataDir, err)
 	}
 	common.Config.DataDir = absDataDir
 	logrus.Debug("creating the filesystem object")
 	m2kFS = filesystem.NewFileSystem()
 	if common.Config.AuthEnabled {
 		if err := authserver.Setup(); err != nil {
-			return fmt.Errorf("failed to setup the OIDC info. Error: %q", err)
+			return fmt.Errorf("failed to setup the OIDC info. Error: %w", err)
 		}
 		if err := sessions.SetupSessionStore(); err != nil {
-			return fmt.Errorf("failed to setup the session store. Error: %q", err)
+			return fmt.Errorf("failed to setup the session store. Error: %w", err)
 		}
 	}
 	return nil

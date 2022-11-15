@@ -47,6 +47,8 @@ type ConfigT struct {
 	CurrentHost                  string   `mapstructure:"current-host"`
 	AuthServer                   string   `mapstructure:"auth-server"`
 	AuthServerBasePath           string   `mapstructure:"auth-server-base-path"`
+	AuthServerLoginPath          string   `mapstructure:"auth-server-login-path"`
+	AuthServerTimeout            int      `mapstructure:"auth-server-timeout"`
 	AuthServerRealm              string   `mapstructure:"auth-server-realm"`
 	OIDCDiscoveryEndpointPath    string   `mapstructure:"oidc-discovery-endpoint-path"`
 	UMAConfigurationEndpointPath string   `mapstructure:"uma-configuration-endpoint-path"`
@@ -57,6 +59,8 @@ type ConfigT struct {
 	M2kServerClientSecret        string   `mapstructure:"m2k-server-client-secret"`
 	DefaultResourceId            string   `mapstructure:"default-resource-id"`
 	Host                         string   `mapstructure:"host"`
+	CertPath                     string   `mapstructure:"https-cert"`
+	KeyPath                      string   `mapstructure:"https-key"`
 	CloudEventsEndpoint          string   `mapstructure:"cloud-events-endpoint"`
 	CloudEventsAccessToken       string   `mapstructure:"cloud-events-access-token"`
 	CloudEventsSpecVersion       string   `mapstructure:"cloud-events-spec-version"`

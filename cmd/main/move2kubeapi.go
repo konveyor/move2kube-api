@@ -66,6 +66,8 @@ For more information, visit https://move2kube.konveyor.io/`,
 	rootCmd.Flags().String("current-host", "http://localhost:8080", "URL where this server is deployed.")
 	rootCmd.Flags().String("auth-server", "http://localhost:8081", "URL of the authorization server.")
 	rootCmd.Flags().String("auth-server-base-path", "/auth-server", "If the authorization server is hosted under a sub path, specify it here.")
+	rootCmd.Flags().String("auth-server-login-path", "", "If the authorization server has a different login path, specify it here.")
+	rootCmd.Flags().Int("auth-server-timeout", 3*60, "Timeout (in seconds) for all requests sent to the auth server. Default is 3 minutes.")
 	rootCmd.Flags().String("auth-server-realm", "m2krealm", "The realm configured in the authorization server.")
 	rootCmd.Flags().String("oidc-discovery-endpoint-path", "", "The OIDC discovery endpoint path for the authorization server. If not specified it uses the default for Keycloak.")
 	rootCmd.Flags().String("uma-configuration-endpoint-path", "", "The UMA configuration endpoint path for the authorization server. If not specified it uses the default for Keycloak.")
@@ -76,6 +78,8 @@ For more information, visit https://move2kube.konveyor.io/`,
 	rootCmd.Flags().String(app+"-server-client-secret", "8a1340ff-de5d-42a0-8b40-b6239c7cfc58", "The OAuth 2.0 client secret for the server side.")
 	rootCmd.Flags().String("default-resource-id", "b4d9b0fd-ffdb-4533-9536-5c315af07352", "Resource id on the Keycloak server.")
 	rootCmd.Flags().String("host", "localhost", "The host name of the server.")
+	rootCmd.Flags().String("https-cert", "", "The path to the certificate file for HTTPS.")
+	rootCmd.Flags().String("https-key", "", "The path to the private key file for HTTPS. Must be an unencrypted private key file")
 	// CloudEvents
 	rootCmd.Flags().Bool("cloud-events-enabled", false, "Enable CloudEvents reporting.")
 	rootCmd.Flags().String("cloud-events-endpoint", "", "Endpoint where CloudEvents are reported.")
@@ -117,6 +121,9 @@ func onInitialize() {
 	logLevel, err := logrus.ParseLevel(common.Config.LogLevel)
 	if err != nil {
 		log.Fatalf("the log level is invalid. Error: %q", err)
+	}
+	if common.Config.AuthServerTimeout <= 0 {
+		log.Fatalf("the auth server timeout is invalid. Expected a positive integer. Actual: '%d'", common.Config.AuthServerTimeout)
 	}
 	logrus.SetLevel(logLevel)
 	logrus.Debugf("log level: %s", logLevel.String())

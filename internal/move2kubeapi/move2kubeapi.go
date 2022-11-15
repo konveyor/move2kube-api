@@ -186,8 +186,31 @@ func Serve() error {
 	}
 
 	logrus.Infof("Starting Move2Kube API server at port: %d", common.Config.Port)
-	if err := http.ListenAndServe(":"+cast.ToString(common.Config.Port), router); err != nil {
-		return fmt.Errorf("failed to listen and serve on port %d . Error: %q", common.Config.Port, err)
+	if common.Config.CertPath == "" && common.Config.KeyPath == "" {
+		if err := http.ListenAndServe(":"+cast.ToString(common.Config.Port), router); err != nil {
+			return fmt.Errorf("failed to listen and serve on port %d . Error: %w", common.Config.Port, err)
+		}
+	} else {
+		if common.Config.CertPath == "" {
+			return fmt.Errorf("HTTPS is enabled but the certificate file has not been provided")
+		}
+		if common.Config.KeyPath == "" {
+			return fmt.Errorf("HTTPS is enabled but the private key file has not been provided")
+		}
+		if finfo, err := os.Stat(common.Config.CertPath); err != nil {
+			return fmt.Errorf("failed to stat the certificate file at the path '%s' . Error: %w", common.Config.CertPath, err)
+		} else if finfo.IsDir() {
+			return fmt.Errorf("expected to find a certificate file at the path '%s'. Found a directory instead", common.Config.CertPath)
+		}
+		if finfo, err := os.Stat(common.Config.KeyPath); err != nil {
+			return fmt.Errorf("failed to stat the private key file at the path '%s' . Error: %w", common.Config.KeyPath, err)
+		} else if finfo.IsDir() {
+			return fmt.Errorf("expected to find a private key file at the path '%s'. Found a directory instead", common.Config.KeyPath)
+		}
+		logrus.Info("HTTPS is enabled")
+		if err := http.ListenAndServeTLS(":"+cast.ToString(common.Config.Port), common.Config.CertPath, common.Config.KeyPath, router); err != nil {
+			return fmt.Errorf("failed to listen and serve using HTTPS on port %d . Error: %w", common.Config.Port, err)
+		}
 	}
 	return nil
 }

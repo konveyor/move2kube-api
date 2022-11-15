@@ -21,7 +21,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 
@@ -53,13 +53,13 @@ func GetTokenUsingRefreshToken(tokenEndpoint, refreshToken, basicAuth string) (t
 			logrus.Debugf("%s %s", AUTHENTICATE_HEADER, resp.Header.Get(AUTHENTICATE_HEADER))
 		}
 		logrus.Debug("the refresh access token request failed")
-		bodyBytes, err := ioutil.ReadAll(resp.Body)
+		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return tokens, err
 		}
 		return tokens, fmt.Errorf("%s\n%s", resp.Status, string(bodyBytes))
 	}
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return tokens, err
 	}
@@ -92,13 +92,13 @@ func GetTokenUsingClientCreds(tokenEndpoint, clientId, clientSecret string) (typ
 			logrus.Debugf("%s %s", AUTHENTICATE_HEADER, resp.Header.Get(AUTHENTICATE_HEADER))
 		}
 		logrus.Debugf("the client credentials access token request failed %s\n", resp.Status)
-		bodyBytes, err := ioutil.ReadAll(resp.Body)
+		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return tokens, fmt.Errorf("failed to read the response body. Error: %q", err)
 		}
 		return tokens, fmt.Errorf("the POST request for access token returned a error status code. Status: %s . Error: %s", resp.Status, string(bodyBytes))
 	}
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return tokens, fmt.Errorf("failed to read the response body. Error: %q", err)
 	}
@@ -133,13 +133,13 @@ func GetPermissionTicket(permEndpoint string, reqPerms []types.PermRequest, serv
 		if resp.StatusCode == http.StatusUnauthorized {
 			logrus.Debugf("%s %s", AUTHENTICATE_HEADER, resp.Header.Get(AUTHENTICATE_HEADER))
 		}
-		bodyBytes, err := ioutil.ReadAll(resp.Body)
+		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return ticket, fmt.Errorf("failed to read the permission ticket response body. Error: %q", err)
 		}
 		return ticket, fmt.Errorf("failed to get the permission ticket. Status: %s Error: %s", resp.Status, string(bodyBytes))
 	}
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return ticket, fmt.Errorf("failed to read the permission ticket response body. Error: %q", err)
 	}
@@ -185,7 +185,7 @@ func GetUserRPT(permTicket string, userAccessToken string, resPath string) (type
 			logrus.Debugf("%s %s", AUTHENTICATE_HEADER, resp.Header.Get(AUTHENTICATE_HEADER))
 		}
 		logrus.Debug("the rpt token request failed")
-		bodyBytes, err := ioutil.ReadAll(resp.Body)
+		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return tokens, err
 		}
@@ -193,7 +193,7 @@ func GetUserRPT(permTicket string, userAccessToken string, resPath string) (type
 		logrus.Debug(err)
 		return types.Tokens{}, err
 	}
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return tokens, err
 	}
@@ -214,7 +214,7 @@ func GetAllJWKs(jwkURL string) (map[string]jose.JSONWebKey, error) {
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return nil, fmt.Errorf("got an error status code from the jwks_uri %s . Status: %s", jwkURL, resp.Status)
 	}
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the response body. Error: %q", err)
 	}
