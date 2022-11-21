@@ -22,11 +22,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/Nerzal/gocloak/v10"
 	"github.com/go-jose/go-jose/v3"
@@ -66,7 +67,7 @@ func Setup() (err error) {
 	discoveryEndpoint := common.Config.AuthServer + common.Config.AuthServerBasePath + discoveryEndpointPath
 	common.Config.OIDCInfo, err = GetOIDCInfo(discoveryEndpoint)
 	if err != nil {
-		return fmt.Errorf("failed to get the OIDC information from the authorization server endpoint %s . Error: %q", discoveryEndpoint, err)
+		return fmt.Errorf("failed to get the OIDC information from the authorization server endpoint %s . Error: %w", discoveryEndpoint, err)
 	}
 	umaConfigEndpointPath := common.Config.UMAConfigurationEndpointPath
 	if umaConfigEndpointPath == "" {
@@ -75,16 +76,16 @@ func Setup() (err error) {
 	umaConfigEndpoint := common.Config.AuthServer + common.Config.AuthServerBasePath + umaConfigEndpointPath
 	common.Config.UMAInfo, err = GetUMAInfo(umaConfigEndpoint)
 	if err != nil {
-		return fmt.Errorf("failed to get the UMA configuration information from the authorization server endpoint %s . Error: %q", umaConfigEndpoint, err)
+		return fmt.Errorf("failed to get the UMA configuration information from the authorization server endpoint %s . Error: %w", umaConfigEndpoint, err)
 	}
 	logrus.Debug("added OIDC and UMA information to the config:\n", common.Config)
 	serverJWKs, err = common.GetAllJWKs(common.Config.OIDCInfo.JwksURI)
 	if err != nil {
-		return fmt.Errorf("failed to get the authorization server public keys. Error: %q", err)
+		return fmt.Errorf("failed to get the authorization server public keys. Error: %w", err)
 	}
 	serverTokens, err = common.GetTokenUsingClientCreds(common.Config.OIDCInfo.TokenEndpoint, common.Config.M2kServerClientId, common.Config.M2kServerClientSecret)
 	if err != nil {
-		return fmt.Errorf("failed to get the resource server access token. Error: %q", err)
+		return fmt.Errorf("failed to get the resource server access token. Error: %w", err)
 	}
 	return nil
 }
@@ -123,7 +124,7 @@ func GetOIDCInfo(discoveryEndpoint string) (types.OIDCInfo, error) {
 		return oidcInfo, fmt.Errorf("failed to get the OIDC information from the server. Error: %q", err)
 	}
 	defer resp.Body.Close()
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return oidcInfo, fmt.Errorf("failed to read the OIDC information from the response body. Error: %q", err)
 	}
@@ -141,7 +142,7 @@ func GetUMAInfo(umaConfigEndpoint string) (types.UMAInfo, error) {
 		return umaInfo, fmt.Errorf("failed to get the UMA configuration information from the server. Error: %q", err)
 	}
 	defer resp.Body.Close()
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return umaInfo, fmt.Errorf("failed to read the UMA configuration information from the response body. Error: %q", err)
 	}
@@ -152,7 +153,9 @@ func GetUMAInfo(umaConfigEndpoint string) (types.UMAInfo, error) {
 }
 
 // GetTokensUsingAuthCode gets access and refresh tokens according to https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
-func GetTokensUsingAuthCode(authCode, redirectURI, clientID, clientSecret string) (types.Tokens, error) {
+func GetTokensUsingAuthCode(_ctx context.Context, authCode, redirectURI, clientID, clientSecret string) (types.Tokens, error) {
+	ctx, cancel := context.WithTimeout(_ctx, time.Duration(common.Config.AuthServerTimeout)*time.Second)
+	defer cancel()
 	tokens := types.Tokens{}
 	// prepare the request
 	reqParams := url.Values{}
@@ -163,7 +166,7 @@ func GetTokensUsingAuthCode(authCode, redirectURI, clientID, clientSecret string
 	tokenEndpoint := common.Config.OIDCInfo.TokenEndpoint
 	reqBasicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(clientID+":"+clientSecret))
 
-	req, err := http.NewRequest("POST", tokenEndpoint, reqBody)
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenEndpoint, reqBody)
 	if err != nil {
 		return tokens, fmt.Errorf("failed to prepare a POST request for the token endpoint %s . Error: %q", tokenEndpoint, err)
 	}
@@ -180,7 +183,7 @@ func GetTokensUsingAuthCode(authCode, redirectURI, clientID, clientSecret string
 	if resp.StatusCode < http.StatusOK || resp.StatusCode > 299 {
 		getTokenError := ""
 		if resp.StatusCode == 400 {
-			if bodyBytes, err := ioutil.ReadAll(resp.Body); err == nil {
+			if bodyBytes, err := io.ReadAll(resp.Body); err == nil {
 				errInfo := map[string]interface{}{}
 				if err := json.Unmarshal(bodyBytes, &errInfo); err == nil {
 					if t2I, ok := errInfo["error"]; ok {
@@ -203,7 +206,7 @@ func GetTokensUsingAuthCode(authCode, redirectURI, clientID, clientSecret string
 		}
 		return tokens, fmt.Errorf("the POST request to the token endpoint %s returned an error status code. Status: %s%s", tokenEndpoint, resp.Status, getTokenError)
 	}
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return tokens, fmt.Errorf("failed to read the response from the token endpoint %s . Error: %q", tokenEndpoint, err)
 	}
@@ -219,6 +222,10 @@ func GetLoginURL(csrfToken string) string {
 	authServerURL, _ := url.Parse(common.Config.OIDCInfo.AuthorizationEndpoint)
 	authServerURL.Scheme = ""
 	authServerURL.Host = ""
+	authServerURL.Path = common.Config.AuthServerLoginPath
+	if common.Config.AuthServerLoginPath == "" {
+		authServerURL.Path = common.Config.AuthServerBasePath
+	}
 	q := authServerURL.Query()
 	q.Set("response_type", "code")
 	q.Set("scope", "openid profile email")
@@ -230,10 +237,12 @@ func GetLoginURL(csrfToken string) string {
 }
 
 // GetUserInfo retrieves the user's information from the authz server, given the user's access token
-func GetUserInfo(accessToken string) (types.UserInfo, error) {
-	user, err := common.AuthServerClient.GetUserInfo(context.TODO(), accessToken, common.Config.AuthServerRealm)
+func GetUserInfo(_ctx context.Context, accessToken string) (types.UserInfo, error) {
+	ctx, cancel := context.WithTimeout(_ctx, time.Duration(common.Config.AuthServerTimeout)*time.Second)
+	defer cancel()
+	user, err := common.AuthServerClient.GetUserInfo(ctx, accessToken, common.Config.AuthServerRealm)
 	if err != nil {
-		return types.UserInfo{}, fmt.Errorf("failed to get the user profile from the authz server. Error: %q", err)
+		return types.UserInfo{}, fmt.Errorf("failed to get the user profile from the authorization server. Error: %w", err)
 	}
 	return types.UserInfo(*user), nil
 }
@@ -254,7 +263,7 @@ func GetUserInfoFromOIDC(accessToken string) (types.UserInfo, error) {
 	if resp.StatusCode < http.StatusOK || resp.StatusCode > 299 {
 		respError := ""
 		if resp.StatusCode == 400 {
-			if bodyBytes, err := ioutil.ReadAll(resp.Body); err == nil {
+			if bodyBytes, err := io.ReadAll(resp.Body); err == nil {
 				errInfo := map[string]interface{}{}
 				if err := json.Unmarshal(bodyBytes, &errInfo); err == nil {
 					if t2I, ok := errInfo["error"]; ok {
@@ -277,7 +286,7 @@ func GetUserInfoFromOIDC(accessToken string) (types.UserInfo, error) {
 		}
 		return userInfo, fmt.Errorf("the GET request to the OIDC user info endpoint %s returned an error status code. Status: %s%s", common.Config.OIDCInfo.UserinfoEndpoint, resp.Status, respError)
 	}
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return userInfo, fmt.Errorf("failed to get the user profile from the OIDC user info endpoint. Error: %q", err)
 	}

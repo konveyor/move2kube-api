@@ -132,7 +132,13 @@ func HandleLoginCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// get the access and refresh tokens using the authorization code
-	tokens, err := authserver.GetTokensUsingAuthCode(authCode, common.Config.CurrentHost+common.LOGIN_CALLBACK_PATH, common.Config.M2kClientClientId, common.Config.M2kClientClientSecret)
+	tokens, err := authserver.GetTokensUsingAuthCode(
+		r.Context(),
+		authCode,
+		common.Config.CurrentHost+common.LOGIN_CALLBACK_PATH,
+		common.Config.M2kClientClientId,
+		common.Config.M2kClientClientSecret,
+	)
 	if err != nil {
 		logrus.Errorf("failed to get the tokens using the authorization code. Error: %q", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -140,7 +146,7 @@ func HandleLoginCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	sessInfo.Tokens = tokens
 	// get the user's profile information
-	userInfo, err := authserver.GetUserInfo(tokens.AccessToken)
+	userInfo, err := authserver.GetUserInfo(r.Context(), tokens.AccessToken)
 	if err != nil {
 		logrus.Errorf("failed to get the user information from the authorization server. Error: %q", err)
 		w.WriteHeader(http.StatusInternalServerError)

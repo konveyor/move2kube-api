@@ -50,7 +50,7 @@ func DecodeJWT(jwt string) (header string, payload string, err error) {
 func DecodeToken(token string, jwks map[string]jose.JSONWebKey) ([]byte, error) {
 	jws, err := jose.ParseSigned(token)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse the token %s as a JWS. Error: %q", token, err)
+		return nil, fmt.Errorf("failed to parse the token %s as a JWS. Error: %w", token, err)
 	}
 	unverifiable := false
 	var unverifiableDecoded []byte
@@ -93,7 +93,7 @@ func DecodeToken(token string, jwks map[string]jose.JSONWebKey) ([]byte, error) 
 		}
 		decodeToken := struct{ Exp int64 }{}
 		if err := json.Unmarshal(decoded, &decodeToken); err != nil {
-			return decoded, fmt.Errorf("failed to unmarshal the decoded payload %s as a token. Error: %q", string(decoded), err)
+			return decoded, fmt.Errorf("failed to unmarshal the decoded payload %s as a token. Error: %w", string(decoded), err)
 		}
 		if decodeToken.Exp <= time.Now().Unix() {
 			return decoded, types.ErrorTokenExpired{Exp: decodeToken.Exp}
@@ -103,7 +103,7 @@ func DecodeToken(token string, jwks map[string]jose.JSONWebKey) ([]byte, error) 
 	if unverifiable {
 		return unverifiableDecoded, types.ErrorTokenUnverifiable{}
 	}
-	return nil, fmt.Errorf("failed to verify the token %s using the JWKs %+v . Error: %q", token, jwks, err)
+	return nil, fmt.Errorf("failed to verify the token %s using the JWKs %+v", token, jwks)
 }
 
 // GetAccesTokenFromAuthzHeader returns the access token from the authorization bearer HTTP header
