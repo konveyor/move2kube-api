@@ -19,7 +19,6 @@ package move2kubeapi
 import (
 	"fmt"
 	"io/fs"
-	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -154,9 +153,9 @@ func Serve() error {
 		finfo, err := os.Stat(staticFilesDir)
 		if err != nil {
 			if os.IsNotExist(err) {
-				log.Fatalf("the static files directory %s does not exist.", staticFilesDir)
+				logrus.Fatalf("the static files directory %s does not exist.", staticFilesDir)
 			}
-			log.Fatalf("failed to stat the static files directory at path %s . Error: %q", staticFilesDir, err)
+			logrus.Fatalf("failed to stat the static files directory at path %s . Error: %q", staticFilesDir, err)
 		}
 		if !finfo.IsDir() {
 			return fmt.Errorf("the path %s points to a file. Expected a directory containing static files to be served", staticFilesDir)

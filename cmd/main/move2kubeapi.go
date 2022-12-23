@@ -17,7 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"log"
 	"strings"
 
 	"github.com/konveyor/move2kube-api/cmd/main/umask"
@@ -120,10 +119,10 @@ func onInitialize() {
 	setupViper()
 	logLevel, err := logrus.ParseLevel(common.Config.LogLevel)
 	if err != nil {
-		log.Fatalf("the log level is invalid. Error: %q", err)
+		logrus.Fatalf("the log level is invalid. Error: %q", err)
 	}
 	if common.Config.AuthServerTimeout <= 0 {
-		log.Fatalf("the auth server timeout is invalid. Expected a positive integer. Actual: '%d'", common.Config.AuthServerTimeout)
+		logrus.Fatalf("the auth server timeout is invalid. Expected a positive integer. Actual: '%d'", common.Config.AuthServerTimeout)
 	}
 	logrus.SetLevel(logLevel)
 	logrus.Debugf("log level: %s", logLevel.String())
