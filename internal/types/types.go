@@ -33,6 +33,7 @@ type ConfigT struct {
 	SecureCookies                bool     `mapstructure:"secure-cookies"`
 	AuthEnabled                  bool     `mapstructure:"auth-enabled"`
 	EnableLocalExecution         bool     `mapstructure:"enable-local-execution"`
+	CleanStartup                 bool     `mapstructure:"clean-startup"`
 	CleanUpAfterTransform        bool     `mapstructure:"clean-up-after-transform"`
 	CloudEventsEnabled           bool     `mapstructure:"cloud-events-enabled"`
 	Port                         int      `mapstructure:"port"`
@@ -41,6 +42,7 @@ type ConfigT struct {
 	PlanTimeoutSeconds           int64    `mapstructure:"plan-timeout-seconds"`
 	TransformTimeoutSeconds      int64    `mapstructure:"transform-timeout-seconds"`
 	LogLevel                     string   `mapstructure:"log-level"`
+	LogFile                      string   `mapstructure:"log-file"`
 	DataDir                      string   `mapstructure:"data-dir"`
 	StaticFilesDir               string   `mapstructure:"static-files-dir"`
 	SessionSecret                string   `mapstructure:"session-secret"`

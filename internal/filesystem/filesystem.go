@@ -2085,9 +2085,20 @@ func (fs *FileSystem) postSolution(t *bolt.Tx, workspaceId, projectId, projOutpu
 }
 
 // NewFileSystem returns a new IFileSystem object which manages workspaces and projects in the filesystem
-func NewFileSystem() *FileSystem {
+func NewFileSystem() (*FileSystem, error) {
 	logrus.Trace("NewFileSystem start")
 	defer logrus.Trace("NewFileSystem end")
+	fileSystem := new(FileSystem)
+	if common.Config.CleanStartup {
+		logrus.Infof("deleting the data directory if it already exists at path '%s'", common.Config.DataDir)
+		if err := os.RemoveAll(common.Config.DataDir); err != nil {
+			return fileSystem, fmt.Errorf("failed to remove the data directory at path '%s' . Error: %w", common.Config.DataDir, err)
+		}
+	}
+	logrus.Infof("creating the data directory at path '%s'", common.Config.DataDir)
+	if err := os.MkdirAll(common.Config.DataDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
+		return fileSystem, fmt.Errorf("failed to make the data directory at path '%s' . Error: %w", common.Config.DataDir, err)
+	}
 	workDir := filepath.Join(common.Config.DataDir, WORKSPACES_DIR)
 	logrus.Debugf("making the workspaces directory at %s", workDir)
 	if err := os.MkdirAll(workDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
@@ -2098,7 +2109,6 @@ func NewFileSystem() *FileSystem {
 	if err := os.MkdirAll(projDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
 		logrus.Fatalf("failed to make the projects directory at path %s . Error: %q", projDir, err)
 	}
-	fileSystem := new(FileSystem)
 	db, err := fileSystem.GetDatabase(false)
 	if err != nil {
 		logrus.Fatalf("failed to create/get the database in read/write mode while setting up handlers. Error: %q", err)
@@ -2124,12 +2134,12 @@ func NewFileSystem() *FileSystem {
 	}
 	workspaces, err := fileSystem.ListWorkspaces(nil)
 	if err != nil {
-		logrus.Fatalf("failed to list the workspaces. Error: %q", err)
+		return fileSystem, fmt.Errorf("failed to list the workspaces. Error: %w", err)
 	}
 	for _, workspace := range workspaces {
 		projects, err := fileSystem.ListProjects(workspace.Id)
 		if err != nil {
-			logrus.Fatalf("failed to list the projects in the workspace with id: %s . Error: %q", workspace.Id, err)
+			return fileSystem, fmt.Errorf("failed to list the projects in the workspace with id '%s' . Error: %w", workspace.Id, err)
 		}
 		for _, project := range projects {
 			for _, projOutput := range project.Outputs {
@@ -2139,7 +2149,7 @@ func NewFileSystem() *FileSystem {
 			}
 		}
 	}
-	return fileSystem
+	return fileSystem, nil
 }
 
 // Utility functions

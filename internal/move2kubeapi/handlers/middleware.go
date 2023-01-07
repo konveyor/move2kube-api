@@ -64,7 +64,8 @@ func GetLoggingMiddleWare(next http.Handler) http.Handler {
 func GetAuthorizationMiddleWare(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logrus := GetLogger(r)
-		logrus.Trace("GetAuthorizationMiddleWare start")
+		logrus.Trace("AuthorizationMiddleWare start")
+		defer logrus.Trace("AuthorizationMiddleWare end")
 		resPath := path.Clean(r.URL.Path)
 		resPath = strings.TrimPrefix(resPath, "/api/v1")
 		if resPath == "" || resPath == "/" || resPath == "." {
@@ -160,7 +161,6 @@ func GetAuthorizationMiddleWare(next http.Handler) http.Handler {
 		// save in cache for later
 		// RPTCache[cacheKey] = rpt.AccessToken
 		logrus.Debugf("got authorization for user to access protected resources. RPT: %+v", rpt)
-		logrus.Trace("GetAuthorizationMiddleWare end")
 		next.ServeHTTP(w, r)
 	})
 }

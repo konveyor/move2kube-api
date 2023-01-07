@@ -300,6 +300,7 @@ func GetUserInfoFromOIDC(accessToken string) (types.UserInfo, error) {
 // FilterWorkspacesUserHasAccessTo filters the provided workspace Ids and returns only the ones the user has access to
 func FilterWorkspacesUserHasAccessTo(workspaceIds []string, accessToken string) ([]string, error) {
 	logrus.Trace("FilterWorkspacesUserHasAccessTo start")
+	defer logrus.Trace("FilterWorkspacesUserHasAccessTo end")
 	serverAccessToken, err := GetResourceServerAccessToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get the access token for the resource server. Error: %q", err)
@@ -383,12 +384,12 @@ func FilterWorkspacesUserHasAccessTo(workspaceIds []string, accessToken string) 
 			filteredIds = append(filteredIds, workspaceId)
 		}
 	}
-	logrus.Trace("FilterWorkspacesUserHasAccessTo end")
 	return filteredIds, nil
 }
 
 func rolesHaveAccess(url string, roles []*gocloak.Role) bool {
-	logrus.Trace("RolesHaveAccess start")
+	logrus.Trace("rolesHaveAccess start")
+	defer logrus.Trace("rolesHaveAccess end")
 	for i, role := range roles {
 		if role == nil {
 			logrus.Errorf("the role at index %d is nil", i)
@@ -398,12 +399,12 @@ func rolesHaveAccess(url string, roles []*gocloak.Role) bool {
 			return true
 		}
 	}
-	logrus.Trace("RolesHaveAccess end")
 	return false
 }
 
 func roleHasAccess(url string, role gocloak.Role) bool {
-	logrus.Trace("RoleHasAccess start")
+	logrus.Trace("roleHasAccess start")
+	defer logrus.Trace("roleHasAccess end")
 	if role.Attributes == nil {
 		return false
 	}
@@ -420,18 +421,17 @@ func roleHasAccess(url string, role gocloak.Role) bool {
 			}
 		}
 	}
-	logrus.Trace("RoleHasAccess end")
 	return false
 }
 
 func patternHasAccess(url string, pattern string) bool {
-	logrus.Trace("PatternHasAccess start")
+	logrus.Trace("patternHasAccess start")
+	defer logrus.Trace("patternHasAccess end")
 	reg, err := regexp.Compile("^" + pattern + "$") // TODO: fix this. The patterns are javascript regexs, NOT golang regexs.
 	if err != nil {
 		logrus.Errorf("failed to compile the pattern '%s' as a regex. Error: %q", pattern, err)
 		return false
 	}
-	logrus.Trace("PatternHasAccess end")
 	return reg.MatchString(url)
 }
 
