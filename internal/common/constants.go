@@ -18,6 +18,7 @@ package common
 
 import (
 	"net/http"
+	"os"
 	"regexp"
 
 	"github.com/Nerzal/gocloak/v10"
@@ -53,6 +54,8 @@ const (
 	IDP_ID_ROUTE_VAR = "idp-id"
 	// DELIM is the route variable for separating the identity provider id and the user id
 	DELIM = "# $ #"
+	// DEFAULT_FILE_PERMISSIONS is the default permissions used when creating new files
+	DEFAULT_FILE_PERMISSIONS os.FileMode = 0660
 )
 
 var (

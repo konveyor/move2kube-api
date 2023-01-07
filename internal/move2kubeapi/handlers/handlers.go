@@ -52,15 +52,18 @@ var (
 
 // Setup handlers
 func Setup() error {
-	logrus.Trace("Setup start")
-	defer logrus.Trace("Setup end")
+	logrus.Trace("handlers.Setup start")
+	defer logrus.Trace("handlers.Setup end")
 	absDataDir, err := filepath.Abs(common.Config.DataDir)
 	if err != nil {
-		return fmt.Errorf("failed to make the data directory path %s absolute. Error: %w", common.Config.DataDir, err)
+		return fmt.Errorf("failed to make the data directory path '%s' absolute. Error: %w", common.Config.DataDir, err)
 	}
 	common.Config.DataDir = absDataDir
 	logrus.Debug("creating the filesystem object")
-	m2kFS = filesystem.NewFileSystem()
+	m2kFS, err = filesystem.NewFileSystem()
+	if err != nil {
+		return fmt.Errorf("failed to create the file system. Error: %w", err)
+	}
 	if common.Config.AuthEnabled {
 		if err := authserver.Setup(); err != nil {
 			return fmt.Errorf("failed to setup the OIDC info. Error: %w", err)
@@ -76,6 +79,7 @@ func Setup() error {
 func HandleSupport(w http.ResponseWriter, r *http.Request) {
 	logrus := GetLogger(r)
 	logrus.Trace("HandleSupport start")
+	defer logrus.Trace("HandleSupport end")
 	supportInfo := m2kFS.GetSupportInfo()
 	w.Header().Set(common.CONTENT_TYPE_HEADER, common.CONTENT_TYPE_JSON)
 	w.WriteHeader(http.StatusOK)
@@ -84,7 +88,6 @@ func HandleSupport(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	logrus.Trace("HandleSupport end")
 }
 
 func sendErrorJSON(w http.ResponseWriter, message string, statusCode int) {

@@ -17,6 +17,8 @@ limitations under the License.
 package main
 
 import (
+	"io"
+	"os"
 	"strings"
 
 	"github.com/konveyor/move2kube-api/cmd/main/umask"
@@ -50,6 +52,9 @@ For more information, visit https://move2kube.konveyor.io/`,
 	app := common.APP_NAME_SHORT
 	rootCmd.PersistentFlags().StringP("config", "c", "", "Path to the config file.")
 	rootCmd.PersistentFlags().String("log-level", logrus.InfoLevel.String(), `Set the logging level. Options are: ["panic", "fatal", "error", "warn", "info", "debug", "trace"]`)
+	rootCmd.PersistentFlags().String("log-file", "", "File to store the logs in. By default it only prints to console.")
+
+	rootCmd.Flags().Bool("clean-startup", false, "Delete the data directory if it exists on startup.")
 	rootCmd.Flags().IntP("port", "p", 8080, "Port to listen on.")
 	rootCmd.Flags().Int("cookie-max-age", 2*3600, "Max age for session cookies (in seconds).")
 	rootCmd.Flags().Int("max-upload-size", 100*1024*1024, "Max size (in bytes) for file uploads.")
@@ -125,6 +130,13 @@ func onInitialize() {
 		logrus.Fatalf("the auth server timeout is invalid. Expected a positive integer. Actual: '%d'", common.Config.AuthServerTimeout)
 	}
 	logrus.SetLevel(logLevel)
+	if common.Config.LogFile != "" {
+		f, err := os.OpenFile(common.Config.LogFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, common.DEFAULT_FILE_PERMISSIONS)
+		if err != nil {
+			logrus.Fatalf("failed to open the log file at path '%s' . Error: %q", common.Config.LogFile, err)
+		}
+		logrus.SetOutput(io.MultiWriter(f, os.Stdout))
+	}
 	logrus.Debugf("log level: %s", logLevel.String())
 	logrus.Debugf("using the following configuration:\n%s", common.Config.String())
 }

@@ -57,6 +57,7 @@ var (
 // SetupSessionStore sets up the session store.
 func SetupSessionStore() error {
 	logrus.Trace("SetupSessionStore start")
+	defer logrus.Trace("SetupSessionStore end")
 	sessionsDir := filepath.Join(common.Config.DataDir, common.SESSIONS_DIR)
 	if err := os.MkdirAll(sessionsDir, 0777); err != nil {
 		return fmt.Errorf("failed to create the directory at path %s Error: %q", sessionsDir, err)
@@ -80,13 +81,13 @@ func SetupSessionStore() error {
 	sessionStore.Options.Secure = common.Config.SecureCookies
 	sessionStore.Options.MaxAge = common.Config.CookieMaxAge
 	sessionStore.MaxLength(math.MaxInt16) // Required to prevent "securecookie: the value is too long" error. See https://github.com/markbates/goth/pull/141/files
-	logrus.Trace("SetupSessionStore end")
 	return nil
 }
 
 // RefreshUserTokensIfExpired refreshs the user token if it has expired
 func (session *Session) RefreshUserTokensIfExpired() bool {
 	logrus.Trace("RefreshUserTokensIfExpired start")
+	defer logrus.Trace("RefreshUserTokensIfExpired end")
 	logrus.Debugf("session.Tokens %+v", session.Tokens)
 	if _, err := authserver.DecodeToken(session.Tokens.AccessToken); err == nil {
 		logrus.Debug("user access token is still valid.")
@@ -111,7 +112,6 @@ func (session *Session) RefreshUserTokensIfExpired() bool {
 		return false
 	}
 	logrus.Debug("got a new user access token using the user refresh token.")
-	logrus.Trace("RefreshUserTokensIfExpired end")
 	return true
 }
 
