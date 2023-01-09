@@ -95,6 +95,7 @@ func Serve() error {
 	apiRouter.HandleFunc("/workspaces/{work-id}/projects", handlers.HandleListProjects).Methods("GET")
 	apiRouter.HandleFunc("/workspaces/{work-id}/projects", handlers.HandleCreateProject).Methods("POST")
 	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}", handlers.HandleReadProject).Methods("GET")
+	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}", handlers.HandleUpdateProject).Methods("PUT")
 	apiRouter.HandleFunc("/workspaces/{work-id}/projects/{proj-id}", handlers.HandleDeleteProject).Methods("DELETE")
 
 	// project inputs
