@@ -220,17 +220,18 @@ func HandleUpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 		reqWorkspace.Timestamp = timestamp
 		reqWorkspace.ProjectIds = []string{}
 		if err := m2kFS.CreateWorkspace(reqWorkspace); err != nil {
+			logrus.Errorf("failed to create the workspace. Error: %q", err)
 			if _, ok := err.(types.ErrorValidation); ok {
 				sendErrorJSON(w, "the project given in the request body is invalid", http.StatusBadRequest)
 				return
 			}
-			logrus.Errorf("failed to create the workspace. Error: %q", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
 		return
 	}
+	reqWorkspace.Timestamp = oldWork.Timestamp
 	reqWorkspace.ProjectIds = oldWork.ProjectIds
 	reqWorkspace.Inputs = oldWork.Inputs
 	if err := m2kFS.UpdateWorkspace(reqWorkspace); err != nil {

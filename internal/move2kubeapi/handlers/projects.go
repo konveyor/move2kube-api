@@ -109,6 +109,79 @@ func HandleCreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// HandleUpdateProject handles updating an existing project
+func HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
+	logrus.Trace("HandleUpdateProject start")
+	defer logrus.Trace("HandleUpdateProject end")
+	routeVars := mux.Vars(r)
+	workspaceId := routeVars[WORKSPACE_ID_ROUTE_VAR]
+	if !common.IsValidId(workspaceId) {
+		logrus.Errorf("the workspace id is invalid. Actual: %s", workspaceId)
+		sendErrorJSON(w, "invalid workspace id", http.StatusBadRequest)
+		return
+	}
+	projectId := routeVars[PROJECT_ID_ROUTE_VAR]
+	if !common.IsValidId(projectId) {
+		logrus.Errorf("the project id is invalid. Actual: %s", projectId)
+		sendErrorJSON(w, "invalid project id", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+	reqProject := types.Project{}
+	if err := json.NewDecoder(r.Body).Decode(&reqProject); err != nil {
+		logrus.Errorf("failed to parse the request body as json to Project. Error: %q", err)
+		sendErrorJSON(w, "failed to parse the request body as a project json", http.StatusBadRequest)
+		return
+	}
+	if reqProject.Id != "" && reqProject.Id != projectId {
+		logrus.Errorf("the project id does not match the url. Request url id: %s Request body project id: %s", projectId, reqProject.Id)
+		sendErrorJSON(w, "the project id in the request body does not match the id in the URL", http.StatusBadRequest)
+		return
+	}
+	reqProject.Id = projectId
+	oldProj, err := m2kFS.ReadProject(workspaceId, projectId)
+	if err != nil {
+		if _, ok := err.(types.ErrorDoesNotExist); !ok {
+			logrus.Errorf("failed to get the project with id: %s in the workspace with id: %s Error: %q", projectId, workspaceId, err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		logrus.Infof("the project with id: %s does not exist in the workspace with id: %s . creating...", projectId, workspaceId)
+		timestamp, _, err := common.GetTimestamp()
+		if err != nil {
+			logrus.Errorf("failed to get the timestamp. Error: %q", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		reqProject.Timestamp = timestamp
+		reqProject.Inputs = map[string]types.ProjectInput{}
+		reqProject.Outputs = map[string]types.ProjectOutput{}
+		reqProject.Status = map[types.ProjectStatus]bool{}
+		if err := m2kFS.CreateProject(workspaceId, reqProject); err != nil {
+			logrus.Errorf("failed to create the project. Error: %q", err)
+			if _, ok := err.(types.ErrorValidation); ok {
+				sendErrorJSON(w, "the project given in the request body is invalid", http.StatusBadRequest)
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		return
+	}
+	reqProject.Timestamp = oldProj.Timestamp
+	reqProject.Inputs = oldProj.Inputs
+	reqProject.Outputs = oldProj.Outputs
+	reqProject.Status = oldProj.Status
+	if err := m2kFS.UpdateProject(workspaceId, reqProject); err != nil {
+		logrus.Errorf("failed to update the project. Error: %q", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // HandleReadProject handles reading an existing project
 func HandleReadProject(w http.ResponseWriter, r *http.Request) {
 	logrus := GetLogger(r)
