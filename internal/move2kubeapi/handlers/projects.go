@@ -101,9 +101,43 @@ func HandleCreateProject(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set(common.CONTENT_TYPE_HEADER, common.CONTENT_TYPE_JSON)
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(map[string]string{"id": newProject.Id}); err != nil {
 		logrus.Errorf("failed to write the response to client. Error: %q", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+}
+
+// HandleReadProject handles reading an existing project
+func HandleReadProject(w http.ResponseWriter, r *http.Request) {
+	logrus := GetLogger(r)
+	logrus.Trace("HandleReadProject start")
+	defer logrus.Trace("HandleReadProject end")
+	routeVars := mux.Vars(r)
+	workspaceId := routeVars[WORKSPACE_ID_ROUTE_VAR]
+	if !common.IsValidId(workspaceId) {
+		logrus.Errorf("invalid workspace id. Actual: %s", workspaceId)
+		sendErrorJSON(w, "invalid workspace id", http.StatusBadRequest)
+		return
+	}
+	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
+	logrus.Debugf("reading project with id: %s", projectId)
+	project, err := m2kFS.ReadProject(workspaceId, projectId)
+	if err != nil {
+		logrus.Errorf("failed to read the project with id %s . Error: %q", projectId, err)
+		if _, ok := err.(types.ErrorDoesNotExist); ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set(common.CONTENT_TYPE_HEADER, common.CONTENT_TYPE_JSON)
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(project); err != nil {
+		logrus.Errorf("failed to send the response json to the client. Error: %q", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -180,38 +214,6 @@ func HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// HandleReadProject handles reading an existing project
-func HandleReadProject(w http.ResponseWriter, r *http.Request) {
-	logrus := GetLogger(r)
-	logrus.Trace("HandleReadProject start")
-	defer logrus.Trace("HandleReadProject end")
-	routeVars := mux.Vars(r)
-	workspaceId := routeVars[WORKSPACE_ID_ROUTE_VAR]
-	if !common.IsValidId(workspaceId) {
-		logrus.Errorf("invalid workspace id. Actual: %s", workspaceId)
-		sendErrorJSON(w, "invalid workspace id", http.StatusBadRequest)
-		return
-	}
-	projectId := mux.Vars(r)[PROJECT_ID_ROUTE_VAR]
-	logrus.Debugf("reading project with id: %s", projectId)
-	project, err := m2kFS.ReadProject(workspaceId, projectId)
-	if err != nil {
-		logrus.Errorf("failed to read the project with id %s . Error: %q", projectId, err)
-		if _, ok := err.(types.ErrorDoesNotExist); ok {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(project); err != nil {
-		logrus.Errorf("failed to send the response json to the client. Error: %q", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
 }
 
 // HandleDeleteProject handles deleting an existing project
