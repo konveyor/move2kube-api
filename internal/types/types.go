@@ -43,6 +43,7 @@ type ConfigT struct {
 	TransformTimeoutSeconds      int64    `mapstructure:"transform-timeout-seconds"`
 	LogLevel                     string   `mapstructure:"log-level"`
 	LogFile                      string   `mapstructure:"log-file"`
+	CorsAllowOrigin              string   `mapstructure:"cors-allow-origin"`
 	DataDir                      string   `mapstructure:"data-dir"`
 	StaticFilesDir               string   `mapstructure:"static-files-dir"`
 	SessionSecret                string   `mapstructure:"session-secret"`
