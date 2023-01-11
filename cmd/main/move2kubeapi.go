@@ -64,6 +64,7 @@ For more information, visit https://move2kube.konveyor.io/`,
 	rootCmd.Flags().Bool("secure-cookies", false, "Send cookies only if it is a https TLS connection. Turn this on in production environments.")
 	rootCmd.Flags().Bool("clean-up-after-transform", false, "Delete extra files after a transformation is finished. Helps save storage space.")
 	rootCmd.Flags().Bool("enable-local-execution", false, "Enable local execution.")
+	rootCmd.Flags().String("cors-allow-origin", "", "Allows cross origin requests from this origin. By default CORS is disabled.")
 	rootCmd.Flags().String("data-dir", "data", "Path to the directory where all the data will stored. It will be created if it doesn't exist.")
 	rootCmd.Flags().String("static-files-dir", "", "Path to the directory containing static files to be served. Used to serve the Move2Kube UI.")
 	rootCmd.Flags().String("session-secret", "", "A random secret to use for signing session cookies. By default it generates a new session secret.")

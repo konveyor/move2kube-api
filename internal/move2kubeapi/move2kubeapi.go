@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	gHandlers "github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/konveyor/move2kube-api/assets"
 	"github.com/konveyor/move2kube-api/internal/common"
@@ -187,8 +188,19 @@ func Serve() error {
 
 	logrus.Infof("Starting Move2Kube API server at port: %d", common.Config.Port)
 	if common.Config.CertPath == "" && common.Config.KeyPath == "" {
-		if err := http.ListenAndServe(":"+cast.ToString(common.Config.Port), router); err != nil {
-			return fmt.Errorf("failed to listen and serve on port %d . Error: %w", common.Config.Port, err)
+		if common.Config.CorsAllowOrigin == "" {
+			if err := http.ListenAndServe(":"+cast.ToString(common.Config.Port), router); err != nil {
+				return fmt.Errorf("failed to listen and serve on port %d . Error: %w", common.Config.Port, err)
+			}
+		} else {
+			logrus.Infof("CORS is enabled for the origin '%s'", common.Config.CorsAllowOrigin)
+			originsOk := gHandlers.AllowedOrigins([]string{common.Config.CorsAllowOrigin})
+			methodsOk := gHandlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"})
+			headersOk := gHandlers.AllowedHeaders([]string{"X-Requested-With"})
+			routerWithCORS := gHandlers.CORS(originsOk, methodsOk, headersOk)(router)
+			if err := http.ListenAndServe(":"+cast.ToString(common.Config.Port), routerWithCORS); err != nil {
+				return fmt.Errorf("failed to listen and serve on port %d . Error: %w", common.Config.Port, err)
+			}
 		}
 	} else {
 		if common.Config.CertPath == "" {
@@ -208,8 +220,19 @@ func Serve() error {
 			return fmt.Errorf("expected to find a private key file at the path '%s'. Found a directory instead", common.Config.KeyPath)
 		}
 		logrus.Info("HTTPS is enabled")
-		if err := http.ListenAndServeTLS(":"+cast.ToString(common.Config.Port), common.Config.CertPath, common.Config.KeyPath, router); err != nil {
-			return fmt.Errorf("failed to listen and serve using HTTPS on port %d . Error: %w", common.Config.Port, err)
+		if common.Config.CorsAllowOrigin == "" {
+			if err := http.ListenAndServeTLS(":"+cast.ToString(common.Config.Port), common.Config.CertPath, common.Config.KeyPath, router); err != nil {
+				return fmt.Errorf("failed to listen and serve using HTTPS on port %d . Error: %w", common.Config.Port, err)
+			}
+		} else {
+			logrus.Infof("CORS is enabled for the origin '%s'", common.Config.CorsAllowOrigin)
+			originsOk := gHandlers.AllowedOrigins([]string{common.Config.CorsAllowOrigin})
+			methodsOk := gHandlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"})
+			headersOk := gHandlers.AllowedHeaders([]string{"X-Requested-With"})
+			routerWithCORS := gHandlers.CORS(originsOk, methodsOk, headersOk)(router)
+			if err := http.ListenAndServeTLS(":"+cast.ToString(common.Config.Port), common.Config.CertPath, common.Config.KeyPath, routerWithCORS); err != nil {
+				return fmt.Errorf("failed to listen and serve using HTTPS on port %d . Error: %w", common.Config.Port, err)
+			}
 		}
 	}
 	return nil
