@@ -1223,42 +1223,42 @@ func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, d
 	}
 
 	// update state
-	logrus.Debugf("just before updating state before starting planning for project %s in workspace %s", projectId, workspaceId)
+	logrus.Debugf("just before updating state before starting planning for project '%s' in workspace '%s'", projectId, workspaceId)
 	project.Status[types.ProjectStatusPlanning] = true
 	if err := fs.updateProject(t, workspaceId, project); err != nil {
-		return fmt.Errorf("failed to update the project with id %s . Error: %q", projectId, err)
+		return fmt.Errorf("failed to update the project with id '%s' . Error: %w", projectId, err)
 	}
 	message := "Project: " + project.Id + ";"
 	// This contains the metadata about a run (host and port of the plan progress server, etc.)
 	planProgressServerMeta := types.QAServerMetadata{Host: common.Config.Host, Debug: debugMode}
 	planProgressServerMeta.Port, err = freeport.GetFreePort()
 	if err != nil {
-		return fmt.Errorf("failed to get a free port. Error: %q", err)
+		return fmt.Errorf("failed to get a free port. Error: %w", err)
 	}
 	logrus.Debugf("plan progress server metadata %+v", planProgressServerMeta)
 	planProgressServerMetaBytes, err := json.Marshal(planProgressServerMeta)
 	if err != nil {
-		return fmt.Errorf("failed to marshal the plan progress server metdata: %+v . Error: %q", planProgressServerMeta, err)
+		return fmt.Errorf("failed to marshal the plan progress server metdata: %+v . Error: %w", planProgressServerMeta, err)
 	}
 	planProgressBucket, err := t.CreateBucketIfNotExists([]byte(M2K_PLAN_PROGRESS_SERVER_METADATA_FILE))
 	if err != nil {
 		return fmt.Errorf("failed to create the bucket. Error: %q", err)
 	}
 	if err := planProgressBucket.Put([]byte(projectId), planProgressServerMetaBytes); err != nil {
-		return fmt.Errorf("failed to save the plan progress metadata in the bucket '%s' for the project with id %s . Error: %q", M2K_PLAN_PROGRESS_SERVER_METADATA_FILE, projectId, err)
+		return fmt.Errorf("failed to save the plan progress metadata in the bucket '%s' for the project with id '%s' . Error: %w", M2K_PLAN_PROGRESS_SERVER_METADATA_FILE, projectId, err)
 	}
 	// effects
-	logrus.Debugf("just before starting effects before starting planning for project %s in workspace %s", projectId, workspaceId)
+	logrus.Debugf("just before starting effects before starting planning for project '%s' in workspace '%s'", projectId, workspaceId)
 	projInputsDir := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, INPUTS_DIR)
 	currentRunDir, err := os.MkdirTemp("", fmt.Sprintf("plan-%s-*", projectId))
 	if err != nil {
-		return fmt.Errorf("failed to create a temporary directory to start planning. Error: %q", err)
+		return fmt.Errorf("failed to create a temporary directory to start planning. Error: %w", err)
 	}
 
 	// resolve symbolic links before proceeding
 	currentRunDir, err = filepath.EvalSymlinks(currentRunDir)
 	if err != nil {
-		return fmt.Errorf("failed to resolve the temporary directory %s as a symbolic link. Error: %q", currentRunDir, err)
+		return fmt.Errorf("failed to resolve the temporary directory '%s' as a symbolic link. Error: %w", currentRunDir, err)
 	}
 	// default is empty string, if the input source is given, value is updated.
 	currentRunSrcDir := ""
@@ -1266,7 +1266,7 @@ func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, d
 		currentRunSrcDir = filepath.Join(currentRunDir, SOURCES_DIR)
 		currentRunSrcDirSrc := filepath.Join(projInputsDir, EXPANDED_DIR, SOURCES_DIR)
 		if err := copyDir(currentRunSrcDirSrc, currentRunSrcDir); err != nil {
-			return fmt.Errorf("failed to copy the sources directory from %s to %s for the current run. Error: %q", currentRunSrcDirSrc, currentRunSrcDir, err)
+			return fmt.Errorf("failed to copy the sources directory from '%s' to '%s' for the current run. Error: %w", currentRunSrcDirSrc, currentRunSrcDir, err)
 		}
 	}
 	currentRunCustDir := ""
@@ -1274,7 +1274,7 @@ func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, d
 		currentRunCustDir = filepath.Join(currentRunDir, CUSTOMIZATIONS_DIR)
 		currentRunCustDirSrc := filepath.Join(projInputsDir, EXPANDED_DIR, CUSTOMIZATIONS_DIR)
 		if err := copyDir(currentRunCustDirSrc, currentRunCustDir); err != nil {
-			return fmt.Errorf("failed to copy the customizations directory from %s to %s for the current run. Error: %q", currentRunCustDirSrc, currentRunCustDir, err)
+			return fmt.Errorf("failed to copy the customizations directory from '%s' to '%s' for the current run. Error: %w", currentRunCustDirSrc, currentRunCustDir, err)
 		}
 	}
 	currentRunConfigsDir := filepath.Join(currentRunDir, CONFIGS_DIR)
@@ -1282,15 +1282,15 @@ func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, d
 	if project.Status[types.ProjectStatusInputConfigs] {
 		currentRunConfigsDirSrc := filepath.Join(projInputsDir, EXPANDED_DIR, CONFIGS_DIR)
 		if err := copyDir(currentRunConfigsDirSrc, currentRunConfigsDir); err != nil {
-			return fmt.Errorf("failed to copy the configs directory from %s to %s for the current run. Error: %q", currentRunConfigsDirSrc, currentRunConfigsDir, err)
+			return fmt.Errorf("failed to copy the configs directory from '%s' to '%s' for the current run. Error: %w", currentRunConfigsDirSrc, currentRunConfigsDir, err)
 		}
 		currentRunConfigPaths, err = getConfigPaths(currentRunConfigsDir, project)
 		if err != nil {
-			return fmt.Errorf("failed to get the config paths from the directory %s . Error: %q", currentRunConfigsDir, err)
+			return fmt.Errorf("failed to get the config paths from the directory '%s' . Error: %w", currentRunConfigsDir, err)
 		}
 	}
 	// copy over common workspace level inputs
-	logrus.Debugf("just before copying over reference type inputs before starting planning for project %s in workspace %s", projectId, workspaceId)
+	logrus.Debugf("just before copying over reference type inputs before starting planning for project '%s' in workspace '%s'", projectId, workspaceId)
 	if project.Status[types.ProjectStatusInputReference] {
 		work, err := fs.readWorkspace(t, workspaceId)
 		if err != nil {
@@ -1306,34 +1306,37 @@ func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, d
 			inpPathDst := ""
 			workInp := work.Inputs[inp.Id]
 			if workInp.Type == types.ProjectInputSources {
+				if currentRunSrcDir == "" {
+					currentRunSrcDir = filepath.Join(currentRunDir, SOURCES_DIR)
+				}
 				inpPathSrc = filepath.Join(workInputsDir, SOURCES_DIR, workInp.NormalizedName)
 				inpPathDst = filepath.Join(currentRunSrcDir, workInp.NormalizedName)
-				if err := os.MkdirAll(currentRunSrcDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
-					return fmt.Errorf("failed to create the sources directory at the path %s . Error: %q", currentRunSrcDir, err)
+				if err := putM2KIgnore(currentRunSrcDir); err != nil {
+					return fmt.Errorf("failed to create the sources directory at the path '%s' . Error: %w", currentRunSrcDir, err)
 				}
 				if err := copyDir(inpPathSrc, inpPathDst); err != nil {
-					return fmt.Errorf("failed to copy the reference sources directory from %s to %s for the current run. Error: %q", inpPathSrc, inpPathDst, err)
+					return fmt.Errorf("failed to copy the reference sources directory from '%s' to '%s' for the current run. Error: %w", inpPathSrc, inpPathDst, err)
 				}
 			}
 			if workInp.Type == types.ProjectInputCustomizations {
 				currentRunCustDir = filepath.Join(currentRunDir, CUSTOMIZATIONS_DIR)
 				inpPathSrc = filepath.Join(workInputsDir, CUSTOMIZATIONS_DIR, workInp.NormalizedName)
 				inpPathDst = filepath.Join(currentRunCustDir, workInp.NormalizedName)
-				if err := os.MkdirAll(currentRunCustDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
-					return fmt.Errorf("failed to create the customizations directory at the path %s . Error: %q", currentRunCustDir, err)
+				if err := putM2KIgnore(currentRunCustDir); err != nil {
+					return fmt.Errorf("failed to create the customizations directory at the path '%s' . Error: %w", currentRunCustDir, err)
 				}
 				if err := copyDir(inpPathSrc, inpPathDst); err != nil {
-					return fmt.Errorf("failed to copy the reference customizations directory from %s to %s for the current run. Error: %q", inpPathSrc, inpPathDst, err)
+					return fmt.Errorf("failed to copy the reference customizations directory from '%s' to '%s' for the current run. Error: %w", inpPathSrc, inpPathDst, err)
 				}
 			}
 			if workInp.Type == types.ProjectInputConfigs {
 				inpPathSrc = filepath.Join(workInputsDir, CONFIGS_DIR, workInp.NormalizedName)
 				inpPathDst = filepath.Join(currentRunConfigsDir, workInp.NormalizedName)
 				if err := os.MkdirAll(currentRunConfigsDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
-					return fmt.Errorf("failed to create the configs directory at the path %s . Error: %q", currentRunConfigsDir, err)
+					return fmt.Errorf("failed to create the configs directory at the path '%s' . Error: %w", currentRunConfigsDir, err)
 				}
 				if err := CopyFile(inpPathDst, inpPathSrc); err != nil {
-					return fmt.Errorf("failed to copy the reference configs file from %s to %s for the current run. Error: %q", inpPathSrc, inpPathDst, err)
+					return fmt.Errorf("failed to copy the reference configs file from '%s' to '%s' for the current run. Error: %w", inpPathSrc, inpPathDst, err)
 				}
 				commonConfigPaths = append(commonConfigPaths, inpPathDst)
 			}
@@ -1601,6 +1604,12 @@ func (fs *FileSystem) resumeTransformation(t *bolt.Tx, workspaceId, projectId, p
 				continue
 			}
 			workInp := work.Inputs[inp.Id]
+			if workInp.Type == types.ProjectInputSources {
+				currentRunSrcDir = filepath.Join(currentRunDir, SOURCES_DIR)
+			}
+			if workInp.Type == types.ProjectInputCustomizations {
+				currentRunCustDir = filepath.Join(currentRunDir, CUSTOMIZATIONS_DIR)
+			}
 			if workInp.Type == types.ProjectInputConfigs {
 				commonConfigPaths = append(commonConfigPaths, filepath.Join(currentRunConfigsDir, workInp.NormalizedName))
 			}
@@ -1722,7 +1731,7 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 		currentRunSrcDir = filepath.Join(currentRunDir, SOURCES_DIR)
 		srcPath := filepath.Join(projInputsDir, EXPANDED_DIR, SOURCES_DIR)
 		if err := copyDir(srcPath, currentRunSrcDir); err != nil {
-			return fmt.Errorf("failed to copy the sources directory from %s to %s for the current run. Error: %q", srcPath, currentRunSrcDir, err)
+			return fmt.Errorf("failed to copy the sources directory from '%s' to '%s' for the current run. Error: %w", srcPath, currentRunSrcDir, err)
 		}
 	}
 	currentRunCustDir := ""
@@ -1730,7 +1739,7 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 		custPath := filepath.Join(projInputsDir, EXPANDED_DIR, CUSTOMIZATIONS_DIR)
 		currentRunCustDir = filepath.Join(currentRunDir, CUSTOMIZATIONS_DIR)
 		if err := copyDir(custPath, currentRunCustDir); err != nil {
-			return fmt.Errorf("failed to copy the customizations directory from %s to %s for the current run. Error: %q", custPath, currentRunCustDir, err)
+			return fmt.Errorf("failed to copy the customizations directory from '%s' to '%s' for the current run. Error: %w", custPath, currentRunCustDir, err)
 		}
 	}
 	currentRunConfigsDir := filepath.Join(currentRunDir, CONFIGS_DIR)
@@ -1738,11 +1747,11 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 	if project.Status[types.ProjectStatusInputConfigs] {
 		configsPath := filepath.Join(projInputsDir, EXPANDED_DIR, CONFIGS_DIR)
 		if err := copyDir(configsPath, currentRunConfigsDir); err != nil {
-			return fmt.Errorf("failed to copy the customizations directory from %s to %s for the current run. Error: %q", configsPath, currentRunConfigsDir, err)
+			return fmt.Errorf("failed to copy the customizations directory from '%s' to '%s' for the current run. Error: %w", configsPath, currentRunConfigsDir, err)
 		}
 		currentRunConfigPaths, err = getConfigPaths(currentRunConfigsDir, project)
 		if err != nil {
-			return fmt.Errorf("failed to get the config paths from the directory %s . Error: %q", currentRunConfigsDir, err)
+			return fmt.Errorf("failed to get the config paths from the directory '%s' . Error: %w", currentRunConfigsDir, err)
 		}
 	}
 	currentRunOutDir := filepath.Join(currentRunDir, "output")
@@ -1764,34 +1773,37 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 			inpPathDst := ""
 			workInp := work.Inputs[inp.Id]
 			if workInp.Type == types.ProjectInputSources {
+				if currentRunSrcDir == "" {
+					currentRunSrcDir = filepath.Join(currentRunDir, SOURCES_DIR)
+				}
 				inpPathSrc = filepath.Join(workInputsDir, SOURCES_DIR, workInp.NormalizedName)
 				inpPathDst = filepath.Join(currentRunSrcDir, workInp.NormalizedName)
-				if err := os.MkdirAll(currentRunSrcDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
-					return fmt.Errorf("failed to create the sources directory at the path %s . Error: %q", currentRunSrcDir, err)
+				if err := putM2KIgnore(currentRunSrcDir); err != nil {
+					return fmt.Errorf("failed to create the sources directory at the path '%s' . Error: %w", currentRunSrcDir, err)
 				}
 				if err := copyDir(inpPathSrc, inpPathDst); err != nil {
-					return fmt.Errorf("failed to copy the reference sources directory from path %s to %s . Error: %q", inpPathSrc, inpPathDst, err)
+					return fmt.Errorf("failed to copy the reference sources directory from path '%s' to '%s' . Error: %w", inpPathSrc, inpPathDst, err)
 				}
 			}
 			if workInp.Type == types.ProjectInputCustomizations {
 				currentRunCustDir = filepath.Join(currentRunDir, CUSTOMIZATIONS_DIR)
 				inpPathSrc = filepath.Join(workInputsDir, CUSTOMIZATIONS_DIR, workInp.NormalizedName)
 				inpPathDst = filepath.Join(currentRunCustDir, workInp.NormalizedName)
-				if err := os.MkdirAll(currentRunCustDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
-					return fmt.Errorf("failed to create the customizations directory at the path %s . Error: %q", currentRunCustDir, err)
+				if err := putM2KIgnore(currentRunCustDir); err != nil {
+					return fmt.Errorf("failed to create the customizations directory at the path '%s' . Error: %w", currentRunCustDir, err)
 				}
 				if err := copyDir(inpPathSrc, inpPathDst); err != nil {
-					return fmt.Errorf("failed to copy the reference customizations directory from path %s to %s . Error: %q", inpPathSrc, inpPathDst, err)
+					return fmt.Errorf("failed to copy the reference customizations directory from path '%s' to '%s' . Error: %w", inpPathSrc, inpPathDst, err)
 				}
 			}
 			if workInp.Type == types.ProjectInputConfigs {
 				inpPathSrc = filepath.Join(workInputsDir, CONFIGS_DIR, workInp.NormalizedName)
 				inpPathDst = filepath.Join(currentRunConfigsDir, workInp.NormalizedName)
 				if err := os.MkdirAll(currentRunConfigsDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
-					return fmt.Errorf("failed to create the configs directory at the path %s . Error: %q", currentRunConfigsDir, err)
+					return fmt.Errorf("failed to create the configs directory at the path '%s' . Error: %w", currentRunConfigsDir, err)
 				}
 				if err := CopyFile(inpPathDst, inpPathSrc); err != nil {
-					return fmt.Errorf("failed to copy the reference config file from path %s to %s . Error: %q", inpPathSrc, inpPathDst, err)
+					return fmt.Errorf("failed to copy the reference config file from path '%s' to '%s' . Error: %w", inpPathSrc, inpPathDst, err)
 				}
 				commonConfigPaths = append(commonConfigPaths, inpPathDst)
 			}
@@ -1800,11 +1812,11 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 	}
 	// start the transformation
 	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode, false)
-	logrus.Infof("Waiting for QA engine to start for the output %s of the project %s", projOutput.Id, projectId)
+	logrus.Infof("Waiting for QA engine to start for the output '%s' of the project '%s'", projOutput.Id, projectId)
 	if err := <-transformCh; err != nil {
-		return fmt.Errorf("failed to start the transformation and qa engine. Error: %q", err)
+		return fmt.Errorf("failed to start the transformation and qa engine. Error: %w", err)
 	}
-	logrus.Infof("Transformation and QA engine has started for output %s of project %s at port %d", projOutput.Id, projectId, qaServerMeta.Port)
+	logrus.Infof("Transformation and QA engine has started for output '%s' of project '%s' at port %d", projOutput.Id, projectId, qaServerMeta.Port)
 	return nil
 }
 
@@ -2065,6 +2077,8 @@ func (fs *FileSystem) postSolution(t *bolt.Tx, workspaceId, projectId, projOutpu
 	if err != nil {
 		return fmt.Errorf("failed to send the POST request to the URL %s . Error: %q", quesURL, err)
 	}
+	defer resp.Body.Close()
+	logrus.Debugf("posted the solution to the CLI. resp: %+v", resp)
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		if resp.StatusCode == 406 {
 			respBodyBytes, err := io.ReadAll(resp.Body)
@@ -2075,7 +2089,6 @@ func (fs *FileSystem) postSolution(t *bolt.Tx, workspaceId, projectId, projOutpu
 		}
 		return fmt.Errorf("got an error response status code. Status: %s", resp.Status)
 	}
-	defer resp.Body.Close()
 	respBodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read the response body. Error: %q", err)
@@ -2202,8 +2215,10 @@ func validateAndProcessPlan(plan string, shouldProcess bool) (string, error) {
 	return plan, nil
 }
 
-// TODO
+// runPlan starts the planning.
 func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []string, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message string, port int, workspaceId, projectId, projectName string, debugMode bool) error {
+	logrus.Trace("FileSystem.runPlan start")
+	defer logrus.Trace("FileSystem.runPlan end")
 	logrus.Infof("Starting plan at directory %s using configs %+v and source %s and customizations %s to output %s", currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir)
 	normName, err := common.NormalizeName(projectName)
 	if err != nil {
