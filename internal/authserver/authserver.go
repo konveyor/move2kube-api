@@ -54,7 +54,9 @@ var (
 )
 
 // Setup sets up the authorization server.
-func Setup() (err error) {
+func Setup() error {
+	logrus.Trace("authserver.Setup start")
+	defer logrus.Trace("authserver.Setup end")
 	common.AuthServerClient = gocloak.NewClient(
 		common.Config.AuthServer+common.Config.AuthServerBasePath,
 		gocloak.SetAuthRealms("realms"),
@@ -65,20 +67,23 @@ func Setup() (err error) {
 		discoveryEndpointPath = fmt.Sprintf(common.OIDC_DISCOVERY_ENDPOINT_PATH, common.Config.AuthServerRealm)
 	}
 	discoveryEndpoint := common.Config.AuthServer + common.Config.AuthServerBasePath + discoveryEndpointPath
+	logrus.Infof("Trying to fetch the OIDC info from the discovery endpoint: '%s'", discoveryEndpoint)
+	var err error
 	common.Config.OIDCInfo, err = GetOIDCInfo(discoveryEndpoint)
 	if err != nil {
-		return fmt.Errorf("failed to get the OIDC information from the authorization server endpoint %s . Error: %w", discoveryEndpoint, err)
+		return fmt.Errorf("failed to get the OIDC information from the authorization server endpoint '%s' . Error: %w", discoveryEndpoint, err)
 	}
 	umaConfigEndpointPath := common.Config.UMAConfigurationEndpointPath
 	if umaConfigEndpointPath == "" {
 		umaConfigEndpointPath = fmt.Sprintf(common.UMA_CONFIGURATION_ENDPOINT_PATH, common.Config.AuthServerRealm)
 	}
 	umaConfigEndpoint := common.Config.AuthServer + common.Config.AuthServerBasePath + umaConfigEndpointPath
+	logrus.Infof("Trying to fetch the UMA info from the discovery endpoint: '%s'", umaConfigEndpoint)
 	common.Config.UMAInfo, err = GetUMAInfo(umaConfigEndpoint)
 	if err != nil {
-		return fmt.Errorf("failed to get the UMA configuration information from the authorization server endpoint %s . Error: %w", umaConfigEndpoint, err)
+		return fmt.Errorf("failed to get the UMA configuration information from the authorization server endpoint '%s' . Error: %w", umaConfigEndpoint, err)
 	}
-	logrus.Debug("added OIDC and UMA information to the config:\n", common.Config)
+	logrus.Debugf("added OIDC and UMA information to the config:\n%+v", common.Config)
 	serverJWKs, err = common.GetAllJWKs(common.Config.OIDCInfo.JwksURI)
 	if err != nil {
 		return fmt.Errorf("failed to get the authorization server public keys. Error: %w", err)
@@ -98,7 +103,7 @@ func DecodeToken(token string) ([]byte, error) {
 // GetResourceServerAccessToken returns the access token for the resource server
 func GetResourceServerAccessToken() (string, error) {
 	if err := refreshServerTokensIfExpired(); err != nil {
-		return serverTokens.AccessToken, fmt.Errorf("failed to refresh the resource server access token. Error: %q", err)
+		return serverTokens.AccessToken, fmt.Errorf("failed to refresh the resource server access token. Error: %w", err)
 	}
 	return serverTokens.AccessToken, nil
 }
@@ -108,7 +113,7 @@ func refreshServerTokensIfExpired() error {
 		logrus.Debug("resource server access token expired. refreshing...")
 		serverTokens, err = common.GetTokenUsingClientCreds(common.Config.OIDCInfo.TokenEndpoint, common.Config.M2kServerClientId, common.Config.M2kServerClientSecret)
 		if err != nil {
-			return fmt.Errorf("failed to get the resource server access token. Error: %q", err)
+			return fmt.Errorf("failed to get the resource server access token. Error: %w", err)
 		}
 	} else {
 		logrus.Debug("resource server access token is still valid.")
@@ -121,15 +126,14 @@ func GetOIDCInfo(discoveryEndpoint string) (types.OIDCInfo, error) {
 	oidcInfo := types.OIDCInfo{}
 	resp, err := http.Get(discoveryEndpoint)
 	if err != nil {
-		return oidcInfo, fmt.Errorf("failed to get the OIDC information from the server. Error: %q", err)
+		return oidcInfo, fmt.Errorf("failed to get the OIDC information from the server. Error: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return oidcInfo, fmt.Errorf("failed to get the OIDC information from the server. Got an error status code: '%s'", resp.Status)
 	}
 	defer resp.Body.Close()
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return oidcInfo, fmt.Errorf("failed to read the OIDC information from the response body. Error: %q", err)
-	}
-	if err := json.Unmarshal(bodyBytes, &oidcInfo); err != nil {
-		return oidcInfo, fmt.Errorf("failed to unmarshal the OIDC information as json. Error: %q", err)
+	if err := json.NewDecoder(resp.Body).Decode(&oidcInfo); err != nil {
+		return oidcInfo, fmt.Errorf("failed to unmarshal the OIDC information as json. Error: %w", err)
 	}
 	return oidcInfo, nil
 }
@@ -139,15 +143,14 @@ func GetUMAInfo(umaConfigEndpoint string) (types.UMAInfo, error) {
 	umaInfo := types.UMAInfo{}
 	resp, err := http.Get(umaConfigEndpoint)
 	if err != nil {
-		return umaInfo, fmt.Errorf("failed to get the UMA configuration information from the server. Error: %q", err)
+		return umaInfo, fmt.Errorf("failed to get the UMA configuration information from the server. Error: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return umaInfo, fmt.Errorf("failed to get the UMA configuration information from the server. Got an error status code: '%s'", resp.Status)
 	}
 	defer resp.Body.Close()
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return umaInfo, fmt.Errorf("failed to read the UMA configuration information from the response body. Error: %q", err)
-	}
-	if err := json.Unmarshal(bodyBytes, &umaInfo); err != nil {
-		return umaInfo, fmt.Errorf("failed to unmarshal the UMA configuration information as json. Error: %q", err)
+	if err := json.NewDecoder(resp.Body).Decode(&umaInfo); err != nil {
+		return umaInfo, fmt.Errorf("failed to unmarshal the UMA configuration information as json. Error: %w", err)
 	}
 	return umaInfo, nil
 }
@@ -168,7 +171,7 @@ func GetTokensUsingAuthCode(_ctx context.Context, authCode, redirectURI, clientI
 
 	req, err := http.NewRequestWithContext(ctx, "POST", tokenEndpoint, reqBody)
 	if err != nil {
-		return tokens, fmt.Errorf("failed to prepare a POST request for the token endpoint %s . Error: %q", tokenEndpoint, err)
+		return tokens, fmt.Errorf("failed to prepare a POST request for the token endpoint %s . Error: %w", tokenEndpoint, err)
 	}
 	req.Header.Set(common.AUTHZ_HEADER, reqBasicAuth)
 	req.Header.Set(common.CONTENT_TYPE_HEADER, common.CONTENT_TYPE_FORM_URL_ENCODED)
@@ -177,7 +180,7 @@ func GetTokensUsingAuthCode(_ctx context.Context, authCode, redirectURI, clientI
 	// send the request
 	resp, err := new(http.Client).Do(req)
 	if err != nil {
-		return tokens, fmt.Errorf("failed to send a POST request to the token endpoint %s . Error: %q", tokenEndpoint, err)
+		return tokens, fmt.Errorf("failed to send a POST request to the token endpoint %s . Error: %w", tokenEndpoint, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode > 299 {
@@ -208,22 +211,26 @@ func GetTokensUsingAuthCode(_ctx context.Context, authCode, redirectURI, clientI
 	}
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return tokens, fmt.Errorf("failed to read the response from the token endpoint %s . Error: %q", tokenEndpoint, err)
+		return tokens, fmt.Errorf("failed to read the response from the token endpoint %s . Error: %w", tokenEndpoint, err)
 	}
 	logrus.Debugf("GetTokensUsingAuthCode string(bodyBytes): %s", string(bodyBytes))
 	if err := json.Unmarshal(bodyBytes, &tokens); err != nil {
-		return tokens, fmt.Errorf("failed to unmarshal the response from the token endpoint as json. Error: %q", err)
+		return tokens, fmt.Errorf("failed to unmarshal the response from the token endpoint as json. Error: %w", err)
 	}
 	return tokens, nil
 }
 
 // GetLoginURL returns the URL of the authz server frontend to which the user should be redirected for login
 func GetLoginURL(csrfToken string) string {
+	logrus.Trace("GetLoginURL start")
+	defer logrus.Trace("GetLoginURL end")
 	authServerURL, _ := url.Parse(common.Config.OIDCInfo.AuthorizationEndpoint)
 	authServerURL.Scheme = ""
 	authServerURL.Host = ""
-	authServerURL.Path = common.Config.AuthServerLoginPath
-	if common.Config.AuthServerLoginPath == "" {
+	if common.Config.AuthServerLoginPath != "" {
+		authServerURL.Path = common.Config.AuthServerLoginPath
+	}
+	if authServerURL.Path == "" && common.Config.AuthServerBasePath != "" {
 		authServerURL.Path = common.Config.AuthServerBasePath
 	}
 	q := authServerURL.Query()
@@ -252,12 +259,12 @@ func GetUserInfoFromOIDC(accessToken string) (types.UserInfo, error) {
 	userInfo := types.UserInfo{}
 	req, err := http.NewRequest("GET", common.Config.OIDCInfo.UserinfoEndpoint, nil)
 	if err != nil {
-		return userInfo, fmt.Errorf("failed to create a GET request to send to the OIDC user info endpoint at %s . Error: %q", common.Config.OIDCInfo.UserinfoEndpoint, err)
+		return userInfo, fmt.Errorf("failed to create a GET request to send to the OIDC user info endpoint at %s . Error: %w", common.Config.OIDCInfo.UserinfoEndpoint, err)
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	resp, err := new(http.Client).Do(req)
 	if err != nil {
-		return userInfo, fmt.Errorf("failed to make the GET request to the OIDC user info endpoint at %s . Error: %q", common.Config.OIDCInfo.UserinfoEndpoint, err)
+		return userInfo, fmt.Errorf("failed to make the GET request to the OIDC user info endpoint at %s . Error: %w", common.Config.OIDCInfo.UserinfoEndpoint, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode > 299 {
@@ -288,11 +295,11 @@ func GetUserInfoFromOIDC(accessToken string) (types.UserInfo, error) {
 	}
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return userInfo, fmt.Errorf("failed to get the user profile from the OIDC user info endpoint. Error: %q", err)
+		return userInfo, fmt.Errorf("failed to get the user profile from the OIDC user info endpoint. Error: %w", err)
 	}
 	logrus.Debugf("GetUserInfo string(bodyBytes): %s", string(bodyBytes))
 	if err := json.Unmarshal(bodyBytes, &userInfo); err != nil {
-		return userInfo, fmt.Errorf("failed to unmarshal the user info as json. Error: %q", err)
+		return userInfo, fmt.Errorf("failed to unmarshal the user info as json. Error: %w", err)
 	}
 	return userInfo, nil
 }
@@ -303,18 +310,18 @@ func FilterWorkspacesUserHasAccessTo(workspaceIds []string, accessToken string) 
 	defer logrus.Trace("FilterWorkspacesUserHasAccessTo end")
 	serverAccessToken, err := GetResourceServerAccessToken()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get the access token for the resource server. Error: %q", err)
+		return nil, fmt.Errorf("failed to get the access token for the resource server. Error: %w", err)
 	}
 	payload, err := DecodeToken(accessToken)
 	if err != nil {
 		if _, ok := err.(types.ErrorTokenExpired); ok {
 			return nil, err
 		}
-		return nil, fmt.Errorf("failed to decode the access token to get the user roles. Error: %q", err)
+		return nil, fmt.Errorf("failed to decode the access token to get the user roles. Error: %w", err)
 	}
 	decodedToken := decodedToken{}
 	if err := json.Unmarshal(payload, &decodedToken); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal the token as json. Error: %q", err)
+		return nil, fmt.Errorf("failed to unmarshal the token as json. Error: %w", err)
 	}
 	if decodedToken.Subject == "" {
 		return nil, fmt.Errorf("the access token has an empty 'sub' field")
@@ -331,7 +338,7 @@ func FilterWorkspacesUserHasAccessTo(workspaceIds []string, accessToken string) 
 	} else {
 		clients, err := common.AuthServerClient.GetClients(context.TODO(), serverAccessToken, common.Config.AuthServerRealm, gocloak.GetClientsParams{ClientID: &decodedToken.ClientId})
 		if err != nil {
-			return nil, fmt.Errorf("failed to get the authz server id of the client with OAuth id %s . Error: %q", decodedToken.ClientId, err)
+			return nil, fmt.Errorf("failed to get the authz server id of the client with OAuth id %s . Error: %w", decodedToken.ClientId, err)
 		}
 		if len(clients) != 1 {
 			return nil, fmt.Errorf("expected exactly one client with the OAuth id. Actual length: %d Actual: %+v", len(clients), clients)
@@ -343,12 +350,12 @@ func FilterWorkspacesUserHasAccessTo(workspaceIds []string, accessToken string) 
 	}
 	userRoles, err := GetCompositeClientRolesByUserID(context.TODO(), serverAccessToken, common.Config.AuthServerRealm, clientIdNotClientId, decodedToken.Subject, false)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get the roles for the user with %s . Error: %q", decodedToken.Subject, err)
+		return nil, fmt.Errorf("failed to get the roles for the user with %s . Error: %w", decodedToken.Subject, err)
 	}
 	// check for a fake user and get the roles of the fake user as well
 	user, err := common.AuthServerClient.GetUserByID(context.TODO(), serverAccessToken, common.Config.AuthServerRealm, decodedToken.Subject)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get the user attributes. Error: %q", err)
+		return nil, fmt.Errorf("failed to get the user attributes. Error: %w", err)
 	}
 	if user.Username != nil && user.Attributes != nil {
 		if idpIdAttr, ok := (*user.Attributes)[common.IDP_ID_ROUTE_VAR]; ok && len(idpIdAttr) == 1 {
@@ -356,7 +363,7 @@ func FilterWorkspacesUserHasAccessTo(workspaceIds []string, accessToken string) 
 			fakeUserName := idpId + common.DELIM + *user.Username
 			users, err := common.AuthServerClient.GetUsers(context.TODO(), serverAccessToken, common.Config.AuthServerRealm, gocloak.GetUsersParams{Username: &fakeUserName})
 			if err != nil {
-				return nil, fmt.Errorf("failed to get the users with the username %s . Error: %q", fakeUserName, err)
+				return nil, fmt.Errorf("failed to get the users with the username %s . Error: %w", fakeUserName, err)
 			}
 			if len(users) == 1 && users[0] != nil {
 				fakeUser := *users[0]
@@ -366,7 +373,7 @@ func FilterWorkspacesUserHasAccessTo(workspaceIds []string, accessToken string) 
 				// fakeUser.ClientRoles is usually empty because keycloak only returns a subset of the user's fields
 				fakeUserRoles, err := GetCompositeClientRolesByUserID(context.TODO(), serverAccessToken, common.Config.AuthServerRealm, clientIdNotClientId, *fakeUser.ID, false)
 				if err != nil {
-					return nil, fmt.Errorf("failed to get the client roles for the fake user with username %s and id %s . Error: %q", fakeUserName, *fakeUser.ID, err)
+					return nil, fmt.Errorf("failed to get the client roles for the fake user with username %s and id %s . Error: %w", fakeUserName, *fakeUser.ID, err)
 				}
 				userRoles = append(userRoles, fakeUserRoles...)
 			}
