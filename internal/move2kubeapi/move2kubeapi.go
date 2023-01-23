@@ -126,8 +126,9 @@ func Serve() error {
 		// Reverse proxy the authorization server. Required for login.
 		backendURL, err := url.Parse(common.Config.AuthServer)
 		if err != nil {
-			return fmt.Errorf("failed to parse the authorization server URL as a URL. Error: %q", err)
+			return fmt.Errorf("failed to parse the authorization server URL as a URL. Error: %w", err)
 		}
+		logrus.Infof("reverse proxying requests to backend at: %+v", backendURL)
 		revProxy := httputil.NewSingleHostReverseProxy(backendURL)
 		oldDirector := revProxy.Director
 		revProxy.Director = func(req *http.Request) {
