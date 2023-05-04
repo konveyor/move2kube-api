@@ -2296,6 +2296,7 @@
             ],
             "properties": {
               "description": {
+                "type": "string",
                 "description": "A human readable error message.",
                 "example": "failed to create the workspace. Error: ..."
               }
