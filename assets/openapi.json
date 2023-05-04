@@ -2355,6 +2355,10 @@
             "description": "A human readable name for the workspace.",
             "example": "Team 1 Workspace"
           },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
           "description": {
             "type": "string",
             "description": "A description about the workspace.",
