@@ -2359,6 +2359,39 @@
             "type": "string",
             "format": "date-time"
           },
+          "project_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "inputs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "normalized_name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
           "description": {
             "type": "string",
             "description": "A description about the workspace.",
