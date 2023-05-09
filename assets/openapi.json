@@ -2326,6 +2326,57 @@
             "description": "A human readable name for the project.",
             "example": "Project 23"
           },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "object",
+            "properties": {
+              "plan": {
+                "type": "boolean"
+              },
+              "plan_error": {
+                "type": "boolean"
+              },
+              "planning": {
+                "type": "boolean"
+              },
+              "reference": {
+                "type": "boolean"
+              },
+              "stale_plan": {
+                "type": "boolean"
+              }
+            }
+          },
+          "inputs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "normalized_name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
           "description": {
             "type": "string",
             "description": "A description about the project.",
