@@ -1345,6 +1345,18 @@
                       "description": "ID of the new project output.",
                       "example": "proj-output-1234"
                     },
+                    "name": {
+                      "type": "string",
+                      "description": "Name of the project output."
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "Description of the project output."
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
                     "status": {
                       "type": "string",
                       "description": "The status of the transformation.",
