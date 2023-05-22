@@ -2384,6 +2384,12 @@
               },
               "stale_plan": {
                 "type": "boolean"
+              },
+              "sources": {
+                "type": "boolean"
+              },
+              "outputs": {
+                "type": "boolean"
               }
             }
           },
