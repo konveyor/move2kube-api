@@ -35,7 +35,6 @@ GIT_COMMIT = $(shell git rev-parse HEAD)
 GIT_SHA    = $(shell git rev-parse --short HEAD)
 GIT_TAG    = $(shell git tag --points-at | tail -n 1)
 GIT_DIRTY  = $(shell test -n "`git status --porcelain`" && echo "dirty" || echo "clean")
-HAS_UPX    = $(shell command -v upx >/dev/null && echo true || echo false)
 
 GOGET     := cd / && GO111MODULE=on go install 
 
@@ -86,14 +85,6 @@ build: get $(BINDIR)/$(BINNAME) ## Build go code
 
 $(BINDIR)/$(BINNAME): $(SRC) assets/swagger
 	go build -ldflags '$(LDFLAGS)' -o $(BINDIR)/$(BINNAME) ./cmd/main
-ifeq ($(HAS_UPX),true)
-	@echo 'upx detected. compressing binary...'
-	upx $(BINDIR)/$(BINNAME)
-else
-	@echo 'In order to compress the produced binaries please install upx:'
-	@echo 'MacOS: brew install upx'
-	@echo 'Linux: sudo apt-get install upx'
-endif
 	cp $(BINDIR)/$(BINNAME) $(GOPATH)/bin/
 
 .PHONY: get
