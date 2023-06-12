@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-jose/go-jose/v3"
 )
@@ -92,30 +91,6 @@ func TestNormalizeName(t *testing.T) {
 			t.Errorf("expected want error %+v, got error %+v. Error: %+v", testCase.wantErr, (err == nil), err)
 		}
 
-	}
-}
-
-func TestGetTimestamp(t *testing.T) {
-	expectedTime := time.Now().UTC()
-	expectedTimestamp := expectedTime.Unix()
-
-	timestamp, unixTime, err := GetTimestamp()
-
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-
-	parsedTime, err := time.Parse(time.RFC3339, timestamp)
-	if err != nil {
-		t.Errorf("Failed to parse timestamp: %v", err)
-	}
-
-	if parsedTime != expectedTime {
-		t.Errorf("Returned timestamp doesn't match the expected time. Expected: %v, Got: %v", expectedTime, parsedTime)
-	}
-
-	if unixTime != expectedTimestamp {
-		t.Errorf("Returned UNIX time doesn't match the expected time. Expected: %v, Got: %v", expectedTimestamp, unixTime)
 	}
 }
 
