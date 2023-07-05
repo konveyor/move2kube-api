@@ -927,8 +927,8 @@ func (fs *FileSystem) createProjectInput(t *bolt.Tx, workspaceId, projectId stri
 	if err := putM2KIgnore(archExpDir); err != nil { // also creates the directory if it doesn't exist, overwrites if it does exist
 		return fmt.Errorf("failed to create a m2kignore file at the path %s . Error: %q", archExpDir, err)
 	}
-	if err := putM2KIgnore(archiveExpandedPath); err != nil { // TODO: is this necessary?
-		return fmt.Errorf("failed to create a m2kignore file at the path %s . Error: %q", archiveExpandedPath, err)
+	if err := os.MkdirAll(archiveExpandedPath, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
+		return fmt.Errorf("failed to create a directory at the path %s . Error: %w", archiveExpandedPath, err)
 	}
 	// write the archive they uploaded
 	f, err := os.OpenFile(archivePath, os.O_WRONLY|os.O_CREATE, DEFAULT_FILE_PERMISSIONS)
