@@ -30,6 +30,10 @@ import (
 )
 
 const (
+	// SKIP_QA_QUERY_PARAM is the name of the query parameter used for skipping QA
+	SKIP_QA_QUERY_PARAM = "skip-qa"
+	// REMOTE_SOURCE_QUERY_PARAM is the URL of the git remote to be used as source
+	REMOTE_SOURCE_QUERY_PARAM = "remote-source"
 	// DEBUG_QUERY_PARAM is the name of the query parameter used for debug mode
 	DEBUG_QUERY_PARAM = "debug"
 	// WORKSPACE_ID_ROUTE_VAR is the route variable that contains the workspace Id

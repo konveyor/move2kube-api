@@ -1172,7 +1172,7 @@ func (fs *FileSystem) deleteProjectInput(t *bolt.Tx, workspaceId, projectId, pro
 
 // StartPlanning starts the generation of a plan for a project.
 // If plan generation is ongoing it will return an error.
-func (fs *FileSystem) StartPlanning(workspaceId, projectId string, debugMode bool) error {
+func (fs *FileSystem) StartPlanning(workspaceId, projectId, remoteSource string, debugMode bool) error {
 	logrus.Trace("FileSystem.StartPlanning start")
 	defer logrus.Trace("FileSystem.StartPlanning end")
 	db, err := fs.GetDatabase(false)
@@ -1182,11 +1182,11 @@ func (fs *FileSystem) StartPlanning(workspaceId, projectId string, debugMode boo
 	}
 	defer db.Close()
 	return db.Update(func(t *bolt.Tx) error {
-		return fs.startPlanning(t, workspaceId, projectId, debugMode)
+		return fs.startPlanning(t, workspaceId, projectId, remoteSource, debugMode)
 	})
 }
 
-func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, debugMode bool) error {
+func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId, remoteSource string, debugMode bool) error {
 	logrus.Trace("FileSystem.startPlanning start")
 	defer logrus.Trace("FileSystem.startPlanning end")
 	// check conditions
@@ -1198,7 +1198,7 @@ func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, d
 		return types.ErrorOngoing{Id: projectId}
 	}
 
-	if !project.Status[types.ProjectStatusInputSources] && !project.Status[types.ProjectStatusInputCustomizations] {
+	if remoteSource == "" && !project.Status[types.ProjectStatusInputSources] && !project.Status[types.ProjectStatusInputCustomizations] {
 		if !project.Status[types.ProjectStatusInputReference] {
 			return types.ErrorValidation{Reason: "the project has no source folders or customization folders as input"}
 		}
@@ -1261,8 +1261,8 @@ func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, d
 		return fmt.Errorf("failed to resolve the temporary directory '%s' as a symbolic link. Error: %w", currentRunDir, err)
 	}
 	// default is empty string, if the input source is given, value is updated.
-	currentRunSrcDir := ""
-	if project.Status[types.ProjectStatusInputSources] {
+	currentRunSrcDir := remoteSource
+	if currentRunSrcDir == "" && project.Status[types.ProjectStatusInputSources] {
 		currentRunSrcDir = filepath.Join(currentRunDir, SOURCES_DIR)
 		currentRunSrcDirSrc := filepath.Join(projInputsDir, EXPANDED_DIR, SOURCES_DIR)
 		if err := copyDir(currentRunSrcDirSrc, currentRunSrcDir); err != nil {
@@ -1305,7 +1305,7 @@ func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId string, d
 			inpPathSrc := ""
 			inpPathDst := ""
 			workInp := work.Inputs[inp.Id]
-			if workInp.Type == types.ProjectInputSources {
+			if workInp.Type == types.ProjectInputSources && remoteSource != "" {
 				if currentRunSrcDir == "" {
 					currentRunSrcDir = filepath.Join(currentRunDir, SOURCES_DIR)
 				}
@@ -1515,18 +1515,18 @@ func (fs *FileSystem) deletePlan(t *bolt.Tx, workspaceId, projectId string) erro
 }
 
 // ResumeTransformation resumes a transformation that did not finish
-func (fs *FileSystem) ResumeTransformation(workspaceId, projectId, projOutputId string, debugMode bool) error {
+func (fs *FileSystem) ResumeTransformation(workspaceId, projectId, projOutputId string, debugMode, skipQA bool) error {
 	db, err := fs.GetDatabase(false)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 	return db.Update(func(t *bolt.Tx) error {
-		return fs.resumeTransformation(t, workspaceId, projectId, projOutputId, debugMode)
+		return fs.resumeTransformation(t, workspaceId, projectId, projOutputId, debugMode, skipQA)
 	})
 }
 
-func (fs *FileSystem) resumeTransformation(t *bolt.Tx, workspaceId, projectId, projOutputId string, debugMode bool) error {
+func (fs *FileSystem) resumeTransformation(t *bolt.Tx, workspaceId, projectId, projOutputId string, debugMode, skipQA bool) error {
 	// check conditions
 	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
@@ -1617,23 +1617,23 @@ func (fs *FileSystem) resumeTransformation(t *bolt.Tx, workspaceId, projectId, p
 		currentRunConfigPaths = append(commonConfigPaths, currentRunConfigPaths...)
 	}
 	// resume the transformation
-	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode, true)
+	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode, skipQA, true)
 	return nil
 }
 
 // StartTransformation starts the transformation for a project.
-func (fs *FileSystem) StartTransformation(workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode bool) error {
+func (fs *FileSystem) StartTransformation(workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode, skipQA bool) error {
 	db, err := fs.GetDatabase(false)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 	return db.Update(func(t *bolt.Tx) error {
-		return fs.startTransformation(t, workspaceId, projectId, projOutput, plan, debugMode)
+		return fs.startTransformation(t, workspaceId, projectId, projOutput, plan, debugMode, skipQA)
 	})
 }
 
-func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode bool) error {
+func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode, skipQA bool) error {
 	// check conditions
 	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
@@ -1642,7 +1642,7 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 	if _, ok := project.Outputs[projOutput.Id]; ok {
 		return types.ErrorIdAlreadyInUse{Id: projOutput.Id}
 	}
-	if !project.Status[types.ProjectStatusInputSources] && !project.Status[types.ProjectStatusInputCustomizations] {
+	if !project.Status[types.ProjectStatusInputSources] && !project.Status[types.ProjectStatusInputCustomizations] && !project.Status[types.ProjectStatusRemoteInputSources] {
 		if !project.Status[types.ProjectStatusInputReference] {
 			return types.ErrorValidation{Reason: "the project has no source or customization folders as input"}
 		}
@@ -1727,7 +1727,7 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 	// default is empty string, if the input source is given, the value is updated
 	currentRunSrcDir := ""
 	// copy the source and customizations directories into the run directory
-	if project.Status[types.ProjectStatusInputSources] {
+	if project.Status[types.ProjectStatusInputSources] && !project.Status[types.ProjectStatusRemoteInputSources] {
 		currentRunSrcDir = filepath.Join(currentRunDir, SOURCES_DIR)
 		srcPath := filepath.Join(projInputsDir, EXPANDED_DIR, SOURCES_DIR)
 		if err := copyDir(srcPath, currentRunSrcDir); err != nil {
@@ -1811,7 +1811,7 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 		currentRunConfigPaths = append(commonConfigPaths, currentRunConfigPaths...)
 	}
 	// start the transformation
-	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode, false)
+	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode, skipQA, false)
 	logrus.Infof("Waiting for QA engine to start for the output '%s' of the project '%s'", projOutput.Id, projectId)
 	if err := <-transformCh; err != nil {
 		return fmt.Errorf("failed to start the transformation and qa engine. Error: %w", err)
@@ -2156,7 +2156,7 @@ func NewFileSystem() (*FileSystem, error) {
 		}
 		for _, project := range projects {
 			for _, projOutput := range project.Outputs {
-				if err := fileSystem.ResumeTransformation(workspace.Id, project.Id, projOutput.Id, false); err != nil {
+				if err := fileSystem.ResumeTransformation(workspace.Id, project.Id, projOutput.Id, false, false); err != nil {
 					logrus.Debugf("failed to resume the transformation for output with id: %s of project id: %s . Error: %q", projOutput.Id, project.Id, err)
 				}
 			}
@@ -2206,8 +2206,8 @@ func validateAndProcessPlan(plan string, shouldProcess bool) (string, error) {
 		return "", fmt.Errorf("'spec.sourceDir' is missing from the plan")
 	} else if pSpecSourceDir, ok := pSpecSourceDirI.(string); !ok {
 		return "", fmt.Errorf("'spec.sourceDir' is not a string. Actual value is %+v of type %T", pSpecSourceDirI, pSpecSourceDirI)
-	} else if pSpecSourceDir != SOURCES_DIR && pSpecSourceDir != "" {
-		return "", fmt.Errorf("'spec.sourceDir' is invalid. Expected 'source' . Actual: %s", pSpecSourceDir)
+	} else if pSpecSourceDir != SOURCES_DIR && pSpecSourceDir != "" && !strings.HasPrefix(pSpecSourceDir, "git+https://") {
+		return "", fmt.Errorf("'spec.sourceDir' is invalid. Expected 'source' or 'git+https://<remote repo url> . Actual: %s", pSpecSourceDir)
 	} else {
 		// TODO: better processing of the plan
 		pMeta["name"], _ = common.NormalizeName(pMetaName)
@@ -2333,6 +2333,9 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 		}
 		// update state
 		logrus.Debug("planning finished. inside Update. just before update start")
+		if strings.HasPrefix(currentRunSrcDir, "git+https://") {
+			project.Status[types.ProjectStatusRemoteInputSources] = true
+		}
 		project.Status[types.ProjectStatusPlanning] = false
 		project.Status[types.ProjectStatusPlan] = true
 		project.Status[types.ProjectStatusStalePlan] = false
@@ -2372,7 +2375,7 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 	return err
 }
 
-func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths []string, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message string, port int, transformCh chan error, workspaceId, projectId string, projOutput types.ProjectOutput, debugMode bool, overwriteOutDir bool) error {
+func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths []string, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message string, port int, transformCh chan error, workspaceId, projectId string, projOutput types.ProjectOutput, debugMode bool, skipQA bool, overwriteOutDir bool) error {
 	logrus.Infof("Starting transformation in %s with configs from %+v and source from %s , customizations from %s and output to %s", currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir)
 	portStr, err := cast.ToStringE(port)
 	if err != nil {
@@ -2388,6 +2391,9 @@ func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths [
 	verbose := debugMode || isVerbose()
 	if verbose {
 		cmdArgs = append(cmdArgs, "--log-level", "trace")
+	}
+	if skipQA {
+		cmdArgs = append(cmdArgs, "--qa-skip")
 	}
 	if !common.Config.EnableLocalExecution {
 		cmdArgs = append(cmdArgs, "--disable-local-execution")

@@ -123,6 +123,11 @@ func IsValidId(id string) bool {
 	return ID_REGEXP.MatchString(id)
 }
 
+// IsRemoteSource returns true if the provided remoteSource is valid
+func IsRemoteSource(remoteSource string) bool {
+	return REMOTE_SOURCE_REGEXP.MatchString(remoteSource)
+}
+
 // IsStringPresent checks if a value is present in a slice
 func IsStringPresent(list []string, value string) bool {
 	for _, val := range list {

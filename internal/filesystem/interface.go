@@ -40,12 +40,12 @@ type IFileSystem interface {
 	CreateProjectInput(workspaceId, projectId string, projInput types.ProjectInput, file io.Reader, isCommon bool) error
 	ReadProjectInput(workspaceId, projectId, projInputId string, isCommon bool) (projInput types.ProjectInput, file io.Reader, err error)
 	DeleteProjectInput(workspaceId, projectId, projInputId string, isCommon bool) error
-	StartPlanning(workspaceId, projectId string, debugMode bool) error
+	StartPlanning(workspaceId, projectId, remoteSource string, debugMode bool) error
 	ReadPlan(workspaceId, projectId string) (plan io.Reader, err error)
 	UpdatePlan(workspaceId, projectId string, plan io.Reader) error
 	DeletePlan(workspaceId, projectId string) error
-	StartTransformation(workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode bool) error
-	ResumeTransformation(workspaceId, projectId, projOutputId string, debugMode bool) error
+	StartTransformation(workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode, skipQA bool) error
+	ResumeTransformation(workspaceId, projectId, projOutputId string, debugMode, skipQA bool) error
 	ReadProjectOutput(workspaceId, projectId, projOutputId string) (projOutput types.ProjectOutput, file io.Reader, err error)
 	ReadProjectOutputGraph(workspaceId, projectId, projOutputId string) (projOutput types.ProjectOutput, file io.Reader, err error)
 	DeleteProjectOutput(workspaceId, projectId, projOutputId string) error

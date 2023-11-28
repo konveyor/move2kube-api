@@ -65,6 +65,8 @@ var (
 	AuthServerClient gocloak.GoCloak
 	// ID_REGEXP is the regexp used to check if a Id is valid
 	ID_REGEXP = regexp.MustCompile("^[a-zA-Z0-9-_]+$")
+	// REMOTE_SOURCE_REGEXP is the regexp used to check if a remote source is valid
+	REMOTE_SOURCE_REGEXP = regexp.MustCompile(`^git\+(https|ssh)://[a-zA-Z0-9]+([\-\.]{1}[a-zA-Z0-9]+)*\.[a-zA-Z]{2,5}(:[0-9]{1,5})?(\/.*)?$`)
 	// INVALID_NAME_CHARS_REGEXP is the regexp used to replace invalid name characters with hyphen
 	INVALID_NAME_CHARS_REGEXP = regexp.MustCompile("[^a-z0-9-]")
 	// AUTHZ_HEADER is the authorization header

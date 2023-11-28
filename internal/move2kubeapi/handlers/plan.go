@@ -39,8 +39,14 @@ func HandleStartPlanning(w http.ResponseWriter, r *http.Request) {
 		sendErrorJSON(w, "invalid id", http.StatusBadRequest)
 		return
 	}
+	remoteSource := r.URL.Query().Get(REMOTE_SOURCE_QUERY_PARAM)
+	if remoteSource != "" && !common.IsRemoteSource(remoteSource) {
+		logrus.Errorf("invalid remote source format; not matching regexp %s. Actual: %s", common.REMOTE_SOURCE_REGEXP, remoteSource)
+		sendErrorJSON(w, "invalid remote source format", http.StatusBadRequest)
+		return
+	}
 	debugMode := r.URL.Query().Get(DEBUG_QUERY_PARAM) == "true"
-	if err := m2kFS.StartPlanning(workspaceId, projectId, debugMode); err != nil {
+	if err := m2kFS.StartPlanning(workspaceId, projectId, remoteSource, debugMode); err != nil {
 		logrus.Errorf("failed to start plan generation. Error: %q", err)
 		if _, ok := err.(types.ErrorDoesNotExist); ok {
 			w.WriteHeader(http.StatusNotFound)
