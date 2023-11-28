@@ -2427,6 +2427,19 @@ func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths [
 		logrus.Errorf("failed to start the transform command. Error: %q", err)
 		return err
 	}
+	flag := true
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			logrus.Errorf("failed to wait for end of the transform command. Error: %q", err)
+		}
+		logrus.Debugf("Closing transformCh: %t", flag)
+		if flag {
+			flag = false
+			transformCh <- nil
+			close(transformCh)
+		}
+
+	}()
 	wg := sync.WaitGroup{}
 	outCh := make(chan string, 10)
 	stdoutReader := bufio.NewReader(stdout)
@@ -2454,17 +2467,17 @@ func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths [
 			}
 			text, err = stderrReader.ReadString('\n')
 		}
-		logrus.Debugf("failed to fetch the stderr of move2kube transform. Error: %q", err)
+		logrus.Infof("failed to fetch the stderr of move2kube transform. Error: %q", err)
 		wg.Done()
 	}()
 	go func() {
 		wg.Wait()
 		close(outCh)
 	}()
-	flag := true
 	for outputLine := range outCh {
 		if flag && strings.Contains(outputLine, portStr) {
 			flag = false
+			logrus.Debug("Closing transformCh")
 			transformCh <- nil
 			close(transformCh)
 		}
