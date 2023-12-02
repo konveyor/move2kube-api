@@ -1091,6 +1091,16 @@
             "schema": {
               "$ref": "#/components/schemas/ID"
             }
+          },
+          {
+            "name": "remote-source",
+            "in": "query",
+            "description": "Remote source git URL from which get the source files.",
+            "required": false,
+            "example": "git+https://github.com/konveyor/move2kube",
+            "schema": {
+              "$ref": "#/components/schemas/RemoteSource"
+            }
           }
         ],
         "responses": {
@@ -1312,6 +1322,16 @@
             "example": "proj-1234",
             "schema": {
               "$ref": "#/components/schemas/ID"
+            }
+          },
+          {
+            "name": "skip-qa",
+            "in": "query",
+            "description": "Boolean to skip interactive QA.",
+            "required": false,
+            "example": "true",
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -2294,6 +2314,12 @@
         "type": "string",
         "description": "A unique ID.",
         "example": "id-1234"
+      },
+      "RemoteSource": {
+        "pattern": "^git[+](https|ssh)://[a-zA-Z0-9]+([-.]{1}[a-zA-Z0-9]+)*[.][a-zA-Z]{2,5}(:[0-9]{1,5})?(\/.*)?$",
+        "type": "string",
+        "description": "A git URL.",
+        "example": "git+https://github.com/konveyor/move2kube"
       },
       "Error": {
         "required": [

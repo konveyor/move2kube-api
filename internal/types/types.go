@@ -346,6 +346,8 @@ func (e ErrorTokenUnverifiable) Error() string {
 type ProjectStatus string
 
 const (
+	// ProjectStatusRemoteInputSources indicates the project has a remlote git source
+	ProjectStatusRemoteInputSources ProjectStatus = "remote"
 	// ProjectStatusInputSources indicates the project has source folder uploaded
 	ProjectStatusInputSources ProjectStatus = "sources"
 	// ProjectStatusInputCustomizations indicates the project has customizations folder uploaded
