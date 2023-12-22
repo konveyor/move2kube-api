@@ -2206,8 +2206,8 @@ func validateAndProcessPlan(plan string, shouldProcess bool) (string, error) {
 		return "", fmt.Errorf("'spec.sourceDir' is missing from the plan")
 	} else if pSpecSourceDir, ok := pSpecSourceDirI.(string); !ok {
 		return "", fmt.Errorf("'spec.sourceDir' is not a string. Actual value is %+v of type %T", pSpecSourceDirI, pSpecSourceDirI)
-	} else if pSpecSourceDir != SOURCES_DIR && pSpecSourceDir != "" && !strings.HasPrefix(pSpecSourceDir, "git+https://") {
-		return "", fmt.Errorf("'spec.sourceDir' is invalid. Expected 'source' or 'git+https://<remote repo url> . Actual: %s", pSpecSourceDir)
+	} else if pSpecSourceDir != SOURCES_DIR && pSpecSourceDir != "" && !strings.HasPrefix(pSpecSourceDir, "git+") {
+		return "", fmt.Errorf("'spec.sourceDir' is invalid. Expected 'source' or 'git+[https|ssh]://<remote repo url> . Actual: %s", pSpecSourceDir)
 	} else {
 		// TODO: better processing of the plan
 		pMeta["name"], _ = common.NormalizeName(pMetaName)
@@ -2333,7 +2333,7 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 		}
 		// update state
 		logrus.Debug("planning finished. inside Update. just before update start")
-		if strings.HasPrefix(currentRunSrcDir, "git+https://") {
+		if strings.HasPrefix(currentRunSrcDir, "git+") {
 			project.Status[types.ProjectStatusRemoteInputSources] = true
 		}
 		project.Status[types.ProjectStatusPlanning] = false
