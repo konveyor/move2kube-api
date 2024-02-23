@@ -56,7 +56,10 @@ func HandleCreateProjectInput(w http.ResponseWriter, r *http.Request, isCommon b
 	if err := r.ParseMultipartForm(common.Config.MaxUploadSize); err != nil {
 		maxErr := &http.MaxBytesError{}
 		if ok := errors.As(err, &maxErr); ok {
-			logrus.Errorf("request body exceeded max upload size of '%d' bytes. Error: %q", common.Config.MaxUploadSize, err)
+			logrus.Errorf(
+				"request body exceeded max upload size of '%d' bytes. Use the '--max-upload-size' flag while starting the server to increase the limit. Error: %q",
+				common.Config.MaxUploadSize, err,
+			)
 			sendErrorJSON(
 				w,
 				"Request body exceeded max upload size. Try using a smaller input. Use the '--max-upload-size' flag while starting the server to increase the limit.",
