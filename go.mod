@@ -1,6 +1,6 @@
 module github.com/konveyor/move2kube-api
 
-go 1.18
+go 1.19
 
 require (
 	github.com/Nerzal/gocloak/v10 v10.0.1
