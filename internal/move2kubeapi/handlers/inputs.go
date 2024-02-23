@@ -18,6 +18,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -53,6 +54,19 @@ func HandleCreateProjectInput(w http.ResponseWriter, r *http.Request, isCommon b
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, common.Config.MaxUploadSize)
 	if err := r.ParseMultipartForm(common.Config.MaxUploadSize); err != nil {
+		maxErr := &http.MaxBytesError{}
+		if ok := errors.As(err, &maxErr); ok {
+			logrus.Errorf(
+				"request body exceeded max upload size of '%d' bytes. Use the '--max-upload-size' flag while starting the server to increase the limit. Error: %q",
+				common.Config.MaxUploadSize, err,
+			)
+			sendErrorJSON(
+				w,
+				"Request body exceeded max upload size. Try using a smaller input. Use the '--max-upload-size' flag while starting the server to increase the limit.",
+				http.StatusBadRequest,
+			)
+			return
+		}
 		logrus.Errorf("failed to parse the request body as multipart/form-data. Error: %q", err)
 		sendErrorJSON(w, "failed to parse the request body as multipart/form-data", http.StatusBadRequest)
 		return
