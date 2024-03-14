@@ -21,7 +21,7 @@ Run using container from registry using `make crun`
 
 ## Setup
 
-1. Obtain a recent version of `golang`. Known to work with `1.18`.
+1. Obtain a recent version of `golang`. Known to work with `1.19`.
 1. Ensure `$GOPATH` is set. If it's not set:
    1. `mkdir ~/go`
    1. `export GOPATH=~/go`
