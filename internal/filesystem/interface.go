@@ -44,8 +44,8 @@ type IFileSystem interface {
 	ReadPlan(workspaceId, projectId string) (plan io.Reader, err error)
 	UpdatePlan(workspaceId, projectId string, plan io.Reader) error
 	DeletePlan(workspaceId, projectId string) error
-	StartTransformation(workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode, skipQA bool) error
-	ResumeTransformation(workspaceId, projectId, projOutputId string, debugMode, skipQA bool) error
+	StartTransformation(workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode, skipQA bool, enableQACategories, disableQACategories []string) error
+	ResumeTransformation(workspaceId, projectId, projOutputId string, debugMode, skipQA bool, enableQACategories, disableQACategories []string) error
 	ReadProjectOutput(workspaceId, projectId, projOutputId string) (projOutput types.ProjectOutput, file io.Reader, err error)
 	ReadProjectOutputGraph(workspaceId, projectId, projOutputId string) (projOutput types.ProjectOutput, file io.Reader, err error)
 	DeleteProjectOutput(workspaceId, projectId, projOutputId string) error
