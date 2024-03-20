@@ -19,7 +19,7 @@ TARGETS     := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
 REGISTRYNS  := quay.io/konveyor
 SWAGGER_UI_VERSION := 3.52.3
 
-GO_VERSION   ?= $(shell go run ./scripts/detectgoversion/detect.go 2>/dev/null || printf '1.18')
+GO_VERSION   ?= $(shell go run ./scripts/detectgoversion/detect.go 2>/dev/null || printf '1.19')
 GOPATH        = $(shell go env GOPATH)
 GOX           = $(GOPATH)/bin/gox
 GOTEST        = ${GOPATH}/bin/gotest
