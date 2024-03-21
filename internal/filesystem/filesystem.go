@@ -1515,18 +1515,19 @@ func (fs *FileSystem) deletePlan(t *bolt.Tx, workspaceId, projectId string) erro
 }
 
 // ResumeTransformation resumes a transformation that did not finish
-func (fs *FileSystem) ResumeTransformation(workspaceId, projectId, projOutputId string, debugMode, skipQA bool) error {
+func (fs *FileSystem) ResumeTransformation(workspaceId, projectId, projOutputId string, debugMode, skipQA bool, enableQACategories, disableQACategories []string) error {
 	db, err := fs.GetDatabase(false)
 	if err != nil {
 		return err
 	}
+
 	defer db.Close()
 	return db.Update(func(t *bolt.Tx) error {
-		return fs.resumeTransformation(t, workspaceId, projectId, projOutputId, debugMode, skipQA)
+		return fs.resumeTransformation(t, workspaceId, projectId, projOutputId, debugMode, skipQA, enableQACategories, disableQACategories)
 	})
 }
 
-func (fs *FileSystem) resumeTransformation(t *bolt.Tx, workspaceId, projectId, projOutputId string, debugMode, skipQA bool) error {
+func (fs *FileSystem) resumeTransformation(t *bolt.Tx, workspaceId, projectId, projOutputId string, debugMode, skipQA bool, enableQACategories, disableQACategories []string) error {
 	// check conditions
 	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
@@ -1617,23 +1618,23 @@ func (fs *FileSystem) resumeTransformation(t *bolt.Tx, workspaceId, projectId, p
 		currentRunConfigPaths = append(commonConfigPaths, currentRunConfigPaths...)
 	}
 	// resume the transformation
-	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode, skipQA, true)
+	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode, skipQA, true, enableQACategories, disableQACategories)
 	return nil
 }
 
 // StartTransformation starts the transformation for a project.
-func (fs *FileSystem) StartTransformation(workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode, skipQA bool) error {
+func (fs *FileSystem) StartTransformation(workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode, skipQA bool, enableQACategories, disableQACategories []string) error {
 	db, err := fs.GetDatabase(false)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 	return db.Update(func(t *bolt.Tx) error {
-		return fs.startTransformation(t, workspaceId, projectId, projOutput, plan, debugMode, skipQA)
+		return fs.startTransformation(t, workspaceId, projectId, projOutput, plan, debugMode, skipQA, enableQACategories, disableQACategories)
 	})
 }
 
-func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode, skipQA bool) error {
+func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode, skipQA bool, enableQACategories, disableQACategories []string) error {
 	// check conditions
 	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
@@ -1811,7 +1812,7 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 		currentRunConfigPaths = append(commonConfigPaths, currentRunConfigPaths...)
 	}
 	// start the transformation
-	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode, skipQA, false)
+	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode, skipQA, false, enableQACategories, disableQACategories)
 	logrus.Infof("Waiting for QA engine to start for the output '%s' of the project '%s'", projOutput.Id, projectId)
 	if err := <-transformCh; err != nil {
 		return fmt.Errorf("failed to start the transformation and qa engine. Error: %w", err)
@@ -2156,7 +2157,7 @@ func NewFileSystem() (*FileSystem, error) {
 		}
 		for _, project := range projects {
 			for _, projOutput := range project.Outputs {
-				if err := fileSystem.ResumeTransformation(workspace.Id, project.Id, projOutput.Id, false, false); err != nil {
+				if err := fileSystem.ResumeTransformation(workspace.Id, project.Id, projOutput.Id, false, false, []string{}, []string{}); err != nil {
 					logrus.Debugf("failed to resume the transformation for output with id: %s of project id: %s . Error: %q", projOutput.Id, project.Id, err)
 				}
 			}
@@ -2375,7 +2376,7 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 	return err
 }
 
-func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths []string, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message string, port int, transformCh chan error, workspaceId, projectId string, projOutput types.ProjectOutput, debugMode bool, skipQA bool, overwriteOutDir bool) error {
+func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths []string, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message string, port int, transformCh chan error, workspaceId, projectId string, projOutput types.ProjectOutput, debugMode bool, skipQA bool, overwriteOutDir bool, enableQACategories, disableQACategories []string) error {
 	logrus.Infof("Starting transformation in %s with configs from %+v and source from %s , customizations from %s and output to %s", currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir)
 	portStr, err := cast.ToStringE(port)
 	if err != nil {
@@ -2394,6 +2395,21 @@ func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths [
 	}
 	if skipQA {
 		cmdArgs = append(cmdArgs, "--qa-skip")
+	}
+	if len(enableQACategories) > 0 && len(disableQACategories) > 0 {
+		logrus.Errorf("--qa-enable and --qa-disable cannot be used together.Proceeding with only --qa-disable flag\n")
+		enableQACategories = []string{}
+	}
+	if len(disableQACategories) > 0 {
+		for _, disableQACategory := range disableQACategories {
+			cmdArgs = append(cmdArgs, "--qa-disable", disableQACategory)
+		}
+		logrus.Infof("disable QA Categories: %v", disableQACategories)
+	} else if len(enableQACategories) > 0 {
+		for _, enableQACategory := range enableQACategories {
+			cmdArgs = append(cmdArgs, "--qa-enable", enableQACategory)
+		}
+		logrus.Infof("enable QA Categories: %v", enableQACategories)
 	}
 	if !common.Config.EnableLocalExecution {
 		cmdArgs = append(cmdArgs, "--disable-local-execution")

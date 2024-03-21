@@ -53,8 +53,22 @@ func HandleStartTransformation(w http.ResponseWriter, r *http.Request) {
 		// empty body
 		planReader = nil
 	}
+
 	debugMode := r.URL.Query().Get(DEBUG_QUERY_PARAM) == "true"
 	skipQA := r.URL.Query().Get(SKIP_QA_QUERY_PARAM) == "true"
+	var enableQACategories []string
+	var disableQACategories []string
+	if val, ok := r.URL.Query()[DISABLE_QA_CATEGORY]; ok {
+		disableQACategories = val
+	}
+	if val, ok := r.URL.Query()[ENABLE_QA_CATEGORY]; ok {
+		enableQACategories = val
+	}
+	// qa-disable and qa-enable flags are mutually exclusive
+	if len(enableQACategories) > 0 && len(disableQACategories) > 0 {
+		logrus.Errorf("--qa-enable and --qa-disable cannot be used together.Proceeding with only --qa-disable flag\n")
+		enableQACategories = []string{}
+	}
 	timestamp, _, err := common.GetTimestamp()
 	if err != nil {
 		logrus.Errorf("failed to get the timestamp. Error: %q", err)
@@ -66,7 +80,7 @@ func HandleStartTransformation(w http.ResponseWriter, r *http.Request) {
 	projOutput.Timestamp = timestamp
 	projOutput.Name = projOutput.Id // This isn't really used anywhere
 	projOutput.Status = types.ProjectOutputStatusInProgress
-	if err := m2kFS.StartTransformation(workspaceId, projectId, projOutput, planReader, debugMode, skipQA); err != nil {
+	if err := m2kFS.StartTransformation(workspaceId, projectId, projOutput, planReader, debugMode, skipQA, enableQACategories, disableQACategories); err != nil {
 		logrus.Errorf("failed to start the transformation. Error: %q", err)
 		if notExErr, ok := err.(types.ErrorDoesNotExist); ok {
 			if notExErr.Id == "plan" {
