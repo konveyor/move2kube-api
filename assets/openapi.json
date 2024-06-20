@@ -1333,6 +1333,26 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "disable-qa-category",
+            "in": "query",
+            "description": "String to disable QA categories. (comma-separated values)",
+            "required": false,
+            "example": "transformers,network",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enable-qa-category",
+            "in": "query",
+            "description": "String to enable QA categories. (comma-separated values)",
+            "required": false,
+            "example": "imageregistry,cicd",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
