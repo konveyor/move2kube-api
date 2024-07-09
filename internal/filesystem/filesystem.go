@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -1172,7 +1173,7 @@ func (fs *FileSystem) deleteProjectInput(t *bolt.Tx, workspaceId, projectId, pro
 
 // StartPlanning starts the generation of a plan for a project.
 // If plan generation is ongoing it will return an error.
-func (fs *FileSystem) StartPlanning(workspaceId, projectId, remoteSource string, debugMode bool) error {
+func (fs *FileSystem) StartPlanning(workspaceId, projectId, remoteSource string, debugMode bool, dumpCliLogs bool) error {
 	logrus.Trace("FileSystem.StartPlanning start")
 	defer logrus.Trace("FileSystem.StartPlanning end")
 	db, err := fs.GetDatabase(false)
@@ -1182,11 +1183,11 @@ func (fs *FileSystem) StartPlanning(workspaceId, projectId, remoteSource string,
 	}
 	defer db.Close()
 	return db.Update(func(t *bolt.Tx) error {
-		return fs.startPlanning(t, workspaceId, projectId, remoteSource, debugMode)
+		return fs.startPlanning(t, workspaceId, projectId, remoteSource, debugMode, dumpCliLogs)
 	})
 }
 
-func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId, remoteSource string, debugMode bool) error {
+func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId, remoteSource string, debugMode bool, dumpCliLogs bool) error {
 	logrus.Trace("FileSystem.startPlanning start")
 	defer logrus.Trace("FileSystem.startPlanning end")
 	// check conditions
@@ -1345,7 +1346,7 @@ func (fs *FileSystem) startPlanning(t *bolt.Tx, workspaceId, projectId, remoteSo
 	}
 	// start plan generation
 	logrus.Debugf("just before starting planning for project %s in workspace %s", projectId, workspaceId)
-	go fs.runPlan(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunDir, message, planProgressServerMeta.Port, workspaceId, projectId, project.Name, debugMode)
+	go fs.runPlan(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunDir, message, planProgressServerMeta.Port, workspaceId, projectId, project.Name, debugMode, dumpCliLogs)
 	logrus.Infof("Planning started for the project with id %s", projectId)
 	return nil
 }
@@ -1617,23 +1618,23 @@ func (fs *FileSystem) resumeTransformation(t *bolt.Tx, workspaceId, projectId, p
 		currentRunConfigPaths = append(commonConfigPaths, currentRunConfigPaths...)
 	}
 	// resume the transformation
-	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode, skipQA, true)
+	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode, skipQA, true, true)
 	return nil
 }
 
 // StartTransformation starts the transformation for a project.
-func (fs *FileSystem) StartTransformation(workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode, skipQA bool) error {
+func (fs *FileSystem) StartTransformation(workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode, skipQA bool, dumpCliLogs bool) error {
 	db, err := fs.GetDatabase(false)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 	return db.Update(func(t *bolt.Tx) error {
-		return fs.startTransformation(t, workspaceId, projectId, projOutput, plan, debugMode, skipQA)
+		return fs.startTransformation(t, workspaceId, projectId, projOutput, plan, debugMode, skipQA, dumpCliLogs)
 	})
 }
 
-func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode, skipQA bool) error {
+func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId string, projOutput types.ProjectOutput, plan io.Reader, debugMode, skipQA bool, dumpCliLogs bool) error {
 	// check conditions
 	project, err := fs.readProject(t, workspaceId, projectId)
 	if err != nil {
@@ -1811,7 +1812,7 @@ func (fs *FileSystem) startTransformation(t *bolt.Tx, workspaceId, projectId str
 		currentRunConfigPaths = append(commonConfigPaths, currentRunConfigPaths...)
 	}
 	// start the transformation
-	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode, skipQA, false)
+	go fs.runTransform(currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message, qaServerMeta.Port, transformCh, workspaceId, projectId, projOutput, debugMode, skipQA, false, dumpCliLogs)
 	logrus.Infof("Waiting for QA engine to start for the output '%s' of the project '%s'", projOutput.Id, projectId)
 	if err := <-transformCh; err != nil {
 		return fmt.Errorf("failed to start the transformation and qa engine. Error: %w", err)
@@ -2216,15 +2217,16 @@ func validateAndProcessPlan(plan string, shouldProcess bool) (string, error) {
 }
 
 // runPlan starts the planning.
-func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []string, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message string, port int, workspaceId, projectId, projectName string, debugMode bool) error {
+func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []string, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message string, port int, workspaceId, projectId, projectName string, debugMode bool, dumpCliLogs bool) error {
 	logrus.Trace("FileSystem.runPlan start")
 	defer logrus.Trace("FileSystem.runPlan end")
-	logrus.Infof("Starting plan at directory %s using configs %+v and source %s and customizations %s to output %s", currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir)
+	logrus.Infof("Starting plan at directory %s using configs %+v and source %s and customizations %s to output %s. Will dump cli logs to stdout: %t", currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, dumpCliLogs)
 	normName, err := common.NormalizeName(projectName)
 	if err != nil {
 		return types.ErrorValidation{Reason: fmt.Sprintf("failed to normalize the project name %s . Error: %q", projectName, err)}
 	}
-	cmdArgs := []string{"plan", "--name", normName, "--plan-progress-port", cast.ToString(port), "--log-file", M2K_CLI_LOG_FILE}
+	logFile := M2K_CLI_LOG_FILE
+	cmdArgs := []string{"plan", "--name", normName, "--plan-progress-port", cast.ToString(port), "--log-file", logFile}
 	verbose := debugMode || isVerbose()
 	if currentRunSrcDir != "" {
 		cmdArgs = append(cmdArgs, "--source", currentRunSrcDir)
@@ -2313,6 +2315,9 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 	default:
 		logrus.Debug("ctx not closed")
 	}
+	if dumpCliLogs {
+		dumpLogFileToStdOut(currentRunDir, logFile)
+	}
 	// release lock
 	db, err := fs.GetDatabase(false)
 	if err != nil {
@@ -2375,13 +2380,14 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 	return err
 }
 
-func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths []string, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message string, port int, transformCh chan error, workspaceId, projectId string, projOutput types.ProjectOutput, debugMode bool, skipQA bool, overwriteOutDir bool) error {
-	logrus.Infof("Starting transformation in %s with configs from %+v and source from %s , customizations from %s and output to %s", currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir)
+func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths []string, currentRunSrcDir, currentRunCustDir, currentRunOutDir, message string, port int, transformCh chan error, workspaceId, projectId string, projOutput types.ProjectOutput, debugMode bool, skipQA bool, overwriteOutDir bool, dumpCliLogs bool) error {
+	logrus.Infof("Starting transformation in %s with configs from %+v and source from %s , customizations from %s and output to %s. Will dump cli logs to stdout: %t", currentRunDir, currentRunConfigPaths, currentRunSrcDir, currentRunCustDir, currentRunOutDir, dumpCliLogs)
 	portStr, err := cast.ToStringE(port)
 	if err != nil {
 		return fmt.Errorf("failed to convert the port '%d' to a string. Error: %q", port, err)
 	}
-	cmdArgs := []string{"transform", "--qa-disable-cli", "--qa-port", portStr, "--output", currentRunOutDir, "--log-file", M2K_CLI_LOG_FILE}
+	logFile := M2K_CLI_LOG_FILE
+	cmdArgs := []string{"transform", "--qa-disable-cli", "--qa-port", portStr, "--output", currentRunOutDir, "--log-file", logFile}
 	if currentRunSrcDir != "" {
 		cmdArgs = append(cmdArgs, "--source", currentRunSrcDir)
 	}
@@ -2495,7 +2501,12 @@ func (fs *FileSystem) runTransform(currentRunDir string, currentRunConfigPaths [
 	default:
 		logrus.Debug("ctx not closed")
 	}
-	// create the output zip file
+	if dumpCliLogs {
+		err = dumpLogFileToStdOut(currentRunDir, logFile)
+		if err != nil {
+			logrus.Errorf("failed to dump the CLI log file to stdout. Error: %q", err)
+		}
+	} // create the output zip file
 	if err := copyOverPlanConfigAndQACache(currentRunDir, currentRunOutDir); err != nil {
 		logrus.Errorf("failed to copy over the m2kconfig.yaml and m2kqacache.yaml. Error: %q", err)
 	}
@@ -2753,4 +2764,18 @@ func (s mySortable) Less(i, j int) bool {
 func (s mySortable) Swap(i, j int) {
 	s.times[i], s.times[j] = s.times[j], s.times[i]
 	s.ids[i], s.ids[j] = s.ids[j], s.ids[i]
+}
+
+func dumpLogFileToStdOut(workdir string, logFileName string) error {
+	logFilePath := filepath.Join(workdir, logFileName)
+	if _, err := os.Stat(logFilePath); errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("log file %q does not exists", logFilePath)
+	}
+	contentBytes, err := os.ReadFile(logFilePath)
+	if err != nil {
+		return fmt.Errorf("error while reading log file %q: %w", logFilePath, err)
+	}
+	logrus.Infof("Logs:\n%s", string(contentBytes))
+
+	return nil
 }

@@ -30,6 +30,8 @@ import (
 )
 
 const (
+	// DUMP_CLI_LOGS_STDOUT_PARAM is the name of the query parameter used for dump the content of CLI log file into stdout
+	DUMP_CLI_LOGS_STDOUT_PARAM = "dump-cli-logs"
 	// SKIP_QA_QUERY_PARAM is the name of the query parameter used for skipping QA
 	SKIP_QA_QUERY_PARAM = "skip-qa"
 	// REMOTE_SOURCE_QUERY_PARAM is the URL of the git remote to be used as source

@@ -55,6 +55,7 @@ func HandleStartTransformation(w http.ResponseWriter, r *http.Request) {
 	}
 	debugMode := r.URL.Query().Get(DEBUG_QUERY_PARAM) == "true"
 	skipQA := r.URL.Query().Get(SKIP_QA_QUERY_PARAM) == "true"
+	dumpCliLogs := r.URL.Query().Get(DUMP_CLI_LOGS_STDOUT_PARAM) == "true"
 	timestamp, _, err := common.GetTimestamp()
 	if err != nil {
 		logrus.Errorf("failed to get the timestamp. Error: %q", err)
@@ -66,7 +67,7 @@ func HandleStartTransformation(w http.ResponseWriter, r *http.Request) {
 	projOutput.Timestamp = timestamp
 	projOutput.Name = projOutput.Id // This isn't really used anywhere
 	projOutput.Status = types.ProjectOutputStatusInProgress
-	if err := m2kFS.StartTransformation(workspaceId, projectId, projOutput, planReader, debugMode, skipQA); err != nil {
+	if err := m2kFS.StartTransformation(workspaceId, projectId, projOutput, planReader, debugMode, skipQA, dumpCliLogs); err != nil {
 		logrus.Errorf("failed to start the transformation. Error: %q", err)
 		if notExErr, ok := err.(types.ErrorDoesNotExist); ok {
 			if notExErr.Id == "plan" {
