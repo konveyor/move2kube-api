@@ -46,7 +46,8 @@ func HandleStartPlanning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	debugMode := r.URL.Query().Get(DEBUG_QUERY_PARAM) == "true"
-	if err := m2kFS.StartPlanning(workspaceId, projectId, remoteSource, debugMode); err != nil {
+	dumpCliLogs := r.URL.Query().Get(DUMP_CLI_LOGS_STDOUT_PARAM) == "true"
+	if err := m2kFS.StartPlanning(workspaceId, projectId, remoteSource, debugMode, dumpCliLogs); err != nil {
 		logrus.Errorf("failed to start plan generation. Error: %q", err)
 		if _, ok := err.(types.ErrorDoesNotExist); ok {
 			w.WriteHeader(http.StatusNotFound)
