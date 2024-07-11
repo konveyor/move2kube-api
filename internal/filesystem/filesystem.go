@@ -243,7 +243,11 @@ func (*FileSystem) GetSupportInfo() map[string]string {
 		}
 	}
 	info["docker"] = "docker socket is mounted"
-	if _, err := os.Stat("/var/run/docker.sock"); err != nil {
+	dockerHost := os.Getenv("DOCKER_HOST")
+	if dockerHost == "" {
+		dockerHost = "/var/run/docker.socket"
+	}
+	if _, err := os.Stat(dockerHost); err != nil {
 		if os.IsNotExist(err) {
 			info["docker"] = "docker socket is not mounted"
 		} else {
