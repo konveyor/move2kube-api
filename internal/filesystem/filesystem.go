@@ -2330,17 +2330,30 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 		return err
 	}
 	defer db.Close()
-	err = db.Update(func(t *bolt.Tx) error {
+	err = db.Update(func(t *bolt.Tx) (errFinal error) {
 		logrus.Trace("planning finished. Update start")
 		defer logrus.Trace("planning finished. Update end")
 		// checks
 		logrus.Debug("planning finished. inside Update. just before checks start")
 		project, err := fs.readProject(t, workspaceId, projectId)
 		if err != nil {
-			logrus.Errorf("inside runPlan, failed to read the project after planning completed. Error: %q", err)
-			return err
+			errFinal = fmt.Errorf("inside runPlan, failed to read the project after planning completed. Error: %w", err)
+			return errFinal
 		}
 		// update state
+		defer func() {
+			logrus.Debug("planning finished. inside deferred Update. just before update start in defer")
+			logrus.Debugf("deferred Update project %+v", project)
+			if errFinal != nil {
+				logrus.Debugf("deferred Update project already an error: %q", errFinal)
+				return
+			}
+			if err := fs.updateProject(t, workspaceId, project); err != nil {
+				logrus.Debugf("deferred Update project error: %+v", err)
+				errFinal = fmt.Errorf("failed to update the project to unlock the plan generation. Error: %w", err)
+			}
+			logrus.Debug("planning finished. inside deferred Update near end")
+		}()
 		logrus.Debug("planning finished. inside Update. just before update start")
 		if strings.HasPrefix(currentRunSrcDir, "git+") {
 			project.Status[types.ProjectStatusRemoteInputSources] = true
@@ -2362,21 +2375,30 @@ func (fs *FileSystem) runPlan(currentRunDir string, currentRunConfigPaths []stri
 				logrus.Errorf("planning for project %s stopped because the context was closed. Error: %q", projectId, err)
 			}
 		}
-		if err := fs.updateProject(t, workspaceId, project); err != nil {
-			return fmt.Errorf("failed to update the project to unlock the plan generation. Error: %q", err)
-		}
 		// effects
 		logrus.Debug("planning finished. inside Update. just before effects start")
 		projInputsDir := filepath.Join(common.Config.DataDir, PROJECTS_DIR, projectId, INPUTS_DIR, EXPANDED_DIR)
 		dstPlanPath := filepath.Join(projInputsDir, M2K_PLAN_FILENAME)
 		srcPlanPath := filepath.Join(currentRunOutDir, M2K_PLAN_FILENAME)
+		if err := cmd.Wait(); err != nil {
+			project.Status[types.ProjectStatusPlan] = false
+			project.Status[types.ProjectStatusPlanError] = true
+			logrus.Errorf("failed to finish planning using move2kube. Error: %q", err)
+			return errFinal
+		}
 		if err := os.MkdirAll(projInputsDir, DEFAULT_DIRECTORY_PERMISSIONS); err != nil {
-			return fmt.Errorf("failed to create the project inputs expanded directory at path %s to copy the plan to. Error: %q", projInputsDir, err)
+			project.Status[types.ProjectStatusPlan] = false
+			project.Status[types.ProjectStatusPlanError] = true
+			logrus.Errorf("failed to create the project inputs expanded directory at path %s to copy the plan to. Error: %q", projInputsDir, err)
+			return errFinal
 		}
 		if err := CopyFile(dstPlanPath, srcPlanPath); err != nil {
-			return fmt.Errorf("failed to copy the plan file from %s to %s after planning finished. Error: %q", srcPlanPath, dstPlanPath, err)
+			project.Status[types.ProjectStatusPlan] = false
+			project.Status[types.ProjectStatusPlanError] = true
+			logrus.Errorf("failed to copy the plan file from %s to %s after planning finished. Error: %q", srcPlanPath, dstPlanPath, err)
+			return errFinal
 		}
-		return nil
+		return errFinal
 	})
 	if err != nil {
 		logrus.Errorf("failed to update the database after planning finished. Error: %q", err)
